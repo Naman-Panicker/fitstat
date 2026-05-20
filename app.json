@@ -43,6 +43,13 @@
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
-    }
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "f58947fd-0519-46eb-a207-8ca98ed4f656"
+      }
+    },
+    "owner": "infinitus_02"
   }
 }
