@@ -1,17 +1,17 @@
 import { StyleSheet } from 'react-native';
 
 export const colors = {
-  // Base
-  background: '#0f0f1a',
-  backgroundElevated: '#16162a',
-  surface: '#1e1e36',
-  surfaceHover: '#252540',
-  border: '#2a2a4a',
-  borderSubtle: '#1f1f38',
+  // Base (AMOLED Black Optimized)
+  background: '#000000',
+  backgroundElevated: '#09090b',
+  surface: '#111115',
+  surfaceHover: '#181820',
+  border: '#1f1f27',
+  borderSubtle: '#141418',
 
   // Brand
   primary: '#4fc3f7',
-  primaryDim: '#1a4a6b',
+  primaryDim: '#143a54',
 
   // Text
   text: '#f0f0ff',

@@ -3,7 +3,7 @@ import {
   View,
   Text,
   StyleSheet,
-  TouchableOpacity,
+  Pressable,
   LayoutAnimation,
   Platform,
   UIManager,
@@ -50,10 +50,9 @@ export default function MealSection({
   return (
     <View style={styles.card}>
       {/* Header row */}
-      <TouchableOpacity
-        style={styles.header}
+      <Pressable
+        style={({ pressed }) => [styles.header, pressed && { opacity: 0.7 }]}
         onPress={toggle}
-        activeOpacity={0.7}
       >
         <View style={styles.headerLeft}>
           <Text style={styles.title}>{MEAL_LABELS[mealType]}</Text>
@@ -72,7 +71,7 @@ export default function MealSection({
             style={styles.chevron}
           />
         </View>
-      </TouchableOpacity>
+      </Pressable>
 
       {/* Expanded content */}
       {expanded && (
@@ -83,14 +82,13 @@ export default function MealSection({
             logs.map((log) => <FoodItem key={log.id} log={log} />)
           )}
 
-          <TouchableOpacity
-            style={styles.addButton}
+          <Pressable
+            style={({ pressed }) => [styles.addButton, pressed && { opacity: 0.8 }]}
             onPress={onAddFood}
-            activeOpacity={0.8}
           >
             <Ionicons name="add" size={16} color={colors.primary} />
             <Text style={styles.addButtonText}>Add Food</Text>
-          </TouchableOpacity>
+          </Pressable>
         </View>
       )}
     </View>

@@ -4,7 +4,7 @@ import {
   View,
   Text,
   StyleSheet,
-  TouchableOpacity,
+  Pressable,
   Image,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -39,12 +39,9 @@ export default function HomeScreen() {
     <SafeAreaView style={globalStyles.container}>
       {/* Brand Top Bar */}
       <View style={styles.topBar}>
-        <Image
-          source={require('../../assets/images/Gemini_Generated_Image_vzkyh1vzkyh1vzky.png')}
-          style={styles.appIcon}
-          resizeMode="cover"
-        />
-        <Text style={styles.brandName}>FitStat</Text>
+        <Pressable style={({ pressed }) => [styles.headerTitleRow, pressed && { opacity: 0.7 }]}>
+          <Text style={styles.headerTitle}>Home</Text>
+        </Pressable>
       </View>
 
       <ScrollView
@@ -108,27 +105,17 @@ export default function HomeScreen() {
                   {cal > 0 ? `${cal} kcal` : 'Not logged'}
                 </Text>
               </View>
-              <TouchableOpacity
-                style={styles.addBtn}
+              <Pressable
+                style={({ pressed }) => [styles.addBtn, pressed && { opacity: 0.7 }]}
                 onPress={() => handleAddMeal(mealType)}
-                activeOpacity={0.7}
               >
                 <Ionicons name="add" size={16} color={colors.primary} />
                 <Text style={styles.addBtnText}>Add</Text>
-              </TouchableOpacity>
+              </Pressable>
             </View>
           );
         })}
       </ScrollView>
-
-      {/* FAB */}
-      <TouchableOpacity
-        style={styles.fab}
-        onPress={() => handleAddMeal()}
-        activeOpacity={0.85}
-      >
-        <Ionicons name="add" size={28} color={colors.background} />
-      </TouchableOpacity>
     </SafeAreaView>
   );
 }
@@ -148,23 +135,25 @@ const styles = StyleSheet.create({
   topBar: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.md,
-    backgroundColor: colors.backgroundElevated,
+    backgroundColor: colors.background,
     paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
+    paddingTop: spacing.md,
+    paddingBottom: spacing.xs,
   },
-  appIcon: {
-    width: 44,
-    height: 44,
-    borderRadius: radius.md,
+  headerTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs + 2,
   },
-  brandName: {
-    ...typography.titleLarge,
-    color: colors.primary,
-    fontWeight: '700',
+  headerTitle: {
+    ...typography.displayMedium,
+    color: colors.text,
+    fontSize: 26,
+    fontWeight: '800',
     letterSpacing: 0.5,
+  },
+  chevronIcon: {
+    marginTop: 4,
   },
   macroBarsContainer: {
     width: '100%',
@@ -205,21 +194,5 @@ const styles = StyleSheet.create({
   addBtnText: {
     ...typography.labelLarge,
     color: colors.primary,
-  },
-  fab: {
-    position: 'absolute',
-    bottom: 90,
-    right: spacing.lg,
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    backgroundColor: colors.primary,
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: colors.primary,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.4,
-    shadowRadius: 12,
-    elevation: 8,
   },
 });

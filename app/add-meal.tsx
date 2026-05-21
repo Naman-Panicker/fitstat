@@ -4,7 +4,7 @@ import {
   View,
   Text,
   TextInput,
-  TouchableOpacity,
+  Pressable,
   StyleSheet,
   KeyboardAvoidingView,
   Platform,
@@ -131,14 +131,14 @@ export default function AddMealScreen() {
           <Text style={styles.sectionLabel}>Meal</Text>
           <View style={styles.pillRow}>
             {MEAL_TYPES.map(({ label, value }) => (
-              <TouchableOpacity
+              <Pressable
                 key={value}
-                style={[
+                style={({ pressed }) => [
                   styles.mealPill,
                   selectedMealType === value && styles.mealPillActive,
+                  pressed && { opacity: 0.7 },
                 ]}
                 onPress={() => setSelectedMealType(value)}
-                activeOpacity={0.7}
               >
                 <Text
                   style={[
@@ -148,7 +148,7 @@ export default function AddMealScreen() {
                 >
                   {label}
                 </Text>
-              </TouchableOpacity>
+              </Pressable>
             ))}
           </View>
 
@@ -170,23 +170,23 @@ export default function AddMealScreen() {
               returnKeyType="search"
             />
             {search.length > 0 && (
-              <TouchableOpacity onPress={() => setSearch('')}>
+              <Pressable onPress={() => setSearch('')} style={({ pressed }) => [pressed && { opacity: 0.7 }]}>
                 <Ionicons name="close-circle" size={16} color={colors.textMuted} />
-              </TouchableOpacity>
+              </Pressable>
             )}
           </View>
 
           {filteredLibrary.length > 0 && (
             <View style={styles.libraryList}>
               {filteredLibrary.map((food) => (
-                <TouchableOpacity
+                <Pressable
                   key={food.id}
-                  style={[
+                  style={({ pressed }) => [
                     styles.libraryItem,
                     selectedFood?.id === food.id && styles.libraryItemSelected,
+                    pressed && { opacity: 0.7 },
                   ]}
                   onPress={() => prefillFromFood(food)}
-                  activeOpacity={0.7}
                 >
                   <View style={styles.libraryItemLeft}>
                     <Text style={styles.libraryItemName}>{food.name}</Text>
@@ -195,7 +195,7 @@ export default function AddMealScreen() {
                     </Text>
                   </View>
                   <Text style={styles.libraryItemCal}>{food.calories} kcal</Text>
-                </TouchableOpacity>
+                </Pressable>
               ))}
             </View>
           )}
@@ -209,10 +209,13 @@ export default function AddMealScreen() {
 
           {/* Form */}
           {selectedFood && (
-            <TouchableOpacity style={styles.clearBtn} onPress={clearForm}>
+            <Pressable
+              style={({ pressed }) => [styles.clearBtn, pressed && { opacity: 0.7 }]}
+              onPress={clearForm}
+            >
               <Ionicons name="close" size={14} color={colors.textSecondary} />
               <Text style={styles.clearBtnText}>Clear selection</Text>
-            </TouchableOpacity>
+            </Pressable>
           )}
 
           <Text style={styles.sectionLabel}>Food Name</Text>
@@ -305,17 +308,20 @@ export default function AddMealScreen() {
           />
 
           {/* Submit */}
-          <TouchableOpacity
-            style={[styles.submitBtn, !canSubmit && styles.submitBtnDisabled]}
+          <Pressable
+            style={({ pressed }) => [
+              styles.submitBtn,
+              !canSubmit && styles.submitBtnDisabled,
+              canSubmit && pressed && { opacity: 0.85 },
+            ]}
             onPress={handleLog}
-            activeOpacity={0.85}
             disabled={!canSubmit}
           >
             <Ionicons name="checkmark" size={18} color={canSubmit ? colors.background : colors.textMuted} />
             <Text style={[styles.submitText, !canSubmit && styles.submitTextDisabled]}>
               Log Meal
             </Text>
-          </TouchableOpacity>
+          </Pressable>
         </ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>
