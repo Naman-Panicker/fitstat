@@ -24,3 +24,14 @@ export type DailyGoals = {
   fat: number;
   fiber: number;
 };
+
+export type User = {
+  id: string;
+  name: string;
+  email?: string;
+  avatarUrl?: string;
+  createdAt: string;
+};
+
+/** Hard-coded user for the development phase. */
+export const DEV_USER_ID = 'dev-user-001';

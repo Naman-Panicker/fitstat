@@ -2,32 +2,45 @@ import React, {
   createContext,
   useContext,
   useReducer,
+  useEffect,
   ReactNode,
 } from 'react';
-import { mockDayLog, mockFoodLibrary } from '../data/mockData';
-import { FoodItem, MealLog, MealType } from '../types';
+import { useSQLiteContext } from 'expo-sqlite';
+import { FoodItem, MealLog, MealType, DEV_USER_ID } from '../types';
+import {
+  getAllFoodItems,
+  getAllMealLogs,
+  insertFoodItem,
+  insertMealLog,
+  deleteMealLog,
+} from '../db/queries';
 
 // ─── State ────────────────────────────────────────────────────────────────────
 
 type State = {
   foodLibrary: FoodItem[];
   dayLog: MealLog[];
+  isLoaded: boolean;
 };
 
 const initialState: State = {
-  foodLibrary: mockFoodLibrary,
-  dayLog: mockDayLog,
+  foodLibrary: [],
+  dayLog: [],
+  isLoaded: false,
 };
 
 // ─── Actions ──────────────────────────────────────────────────────────────────
 
 type Action =
+  | { type: 'HYDRATE'; payload: { foodLibrary: FoodItem[]; dayLog: MealLog[] } }
   | { type: 'ADD_FOOD_TO_LIBRARY'; payload: FoodItem }
   | { type: 'LOG_MEAL'; payload: MealLog }
   | { type: 'DELETE_LOG_ENTRY'; payload: { id: string } };
 
 function reducer(state: State, action: Action): State {
   switch (action.type) {
+    case 'HYDRATE':
+      return { ...state, ...action.payload, isLoaded: true };
     case 'ADD_FOOD_TO_LIBRARY': {
       const exists = state.foodLibrary.some(
         (f) => f.name.toLowerCase() === action.payload.name.toLowerCase()
@@ -63,16 +76,52 @@ const MealsContext = createContext<ContextValue | undefined>(undefined);
 // ─── Provider ─────────────────────────────────────────────────────────────────
 
 export function MealsProvider({ children }: { children: ReactNode }) {
+  const db = useSQLiteContext();
   const [state, dispatch] = useReducer(reducer, initialState);
 
-  const addFoodToLibrary = (food: FoodItem) =>
+  // Hydrate from SQLite on mount
+  useEffect(() => {
+    async function hydrate() {
+      try {
+        const [foodLibrary, dayLog] = await Promise.all([
+          getAllFoodItems(db, DEV_USER_ID),
+          getAllMealLogs(db, DEV_USER_ID),
+        ]);
+        dispatch({ type: 'HYDRATE', payload: { foodLibrary, dayLog } });
+      } catch (e) {
+        console.error('SQLite hydration failed:', e);
+        dispatch({ type: 'HYDRATE', payload: { foodLibrary: [], dayLog: [] } });
+      }
+    }
+    hydrate();
+  }, [db]);
+
+  const addFoodToLibrary = (food: FoodItem) => {
+    const exists = state.foodLibrary.some(
+      (f) => f.name.toLowerCase() === food.name.toLowerCase()
+    );
+    if (exists) return;
+
+    // Write to SQLite, then update in-memory state
+    insertFoodItem(db, food, DEV_USER_ID).catch((e) =>
+      console.error('Failed to insert food item:', e)
+    );
     dispatch({ type: 'ADD_FOOD_TO_LIBRARY', payload: food });
+  };
 
-  const logMeal = (log: MealLog) =>
+  const logMeal = (log: MealLog) => {
+    insertMealLog(db, log, DEV_USER_ID).catch((e) =>
+      console.error('Failed to insert meal log:', e)
+    );
     dispatch({ type: 'LOG_MEAL', payload: log });
+  };
 
-  const deleteLogEntry = (id: string) =>
+  const deleteLogEntry = (id: string) => {
+    deleteMealLog(db, id).catch((e) =>
+      console.error('Failed to delete meal log:', e)
+    );
     dispatch({ type: 'DELETE_LOG_ENTRY', payload: { id } });
+  };
 
   const getLogsForMeal = (mealType: MealType) =>
     state.dayLog.filter((l) => l.mealType === mealType);
