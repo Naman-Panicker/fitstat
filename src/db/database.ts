@@ -5,9 +5,10 @@ import { DEV_USER_ID } from '../types';
 const DATABASE_VERSION = 1;
 
 export async function migrateDbIfNeeded(db: SQLiteDatabase) {
-  let { user_version: currentDbVersion } = await db.getFirstAsync<{
-    user_version: number;
-  }>('PRAGMA user_version');
+  const result = await db.getFirstAsync<{ user_version: number }>(
+    'PRAGMA user_version'
+  );
+  let currentDbVersion = result?.user_version ?? 0;
 
   if (currentDbVersion >= DATABASE_VERSION) return;
 
