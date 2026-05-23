@@ -40,3 +40,42 @@ export type User = {
 
 /** Hard-coded user for the development phase. */
 export const DEV_USER_ID = 'dev-user-001';
+
+// ─── Workout types ───────────────────────────────────────────────────────────
+
+export type MuscleGroup =
+  | 'abs'
+  | 'back'
+  | 'biceps'
+  | 'cardio'
+  | 'chest'
+  | 'forearms'
+  | 'legs'
+  | 'shoulders'
+  | 'triceps';
+
+export type Exercise = {
+  id: string;
+  userId?: string | null; // NULL = global/standard exercise
+  name: string;
+  muscleGroup: MuscleGroup;
+  syncedAt?: string | null;
+};
+
+export type WorkoutLog = {
+  id: string;
+  userId: string;
+  loggedAt: string; // YYYY-MM-DD
+  syncedAt?: string | null;
+};
+
+export type ExerciseSet = {
+  id: string;
+  workoutLogId: string;
+  exerciseId: string;
+  weight: number; // in kgs
+  reps: number;
+  createdAt: string; // timestamp
+  syncedAt?: string | null;
+};
+

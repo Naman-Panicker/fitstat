@@ -3,8 +3,24 @@ import { SQLiteProvider } from 'expo-sqlite';
 import { MealsProvider } from '@/src/context/MealsContext';
 import { migrateDbIfNeeded } from '@/src/db/database';
 import { colors } from '@/src/styles/globals';
+import {
+  useFonts,
+  Jura_400Regular,
+  Jura_500Medium,
+  Jura_700Bold,
+} from '@expo-google-fonts/jura';
 
 export default function RootLayout() {
+  const [fontsLoaded] = useFonts({
+    'Jura-Regular': Jura_400Regular,
+    'Jura-Medium': Jura_500Medium,
+    'Jura-Bold': Jura_700Bold,
+  });
+
+  if (!fontsLoaded) {
+    return null;
+  }
+
   return (
     <SQLiteProvider databaseName="fitstat.db" onInit={migrateDbIfNeeded}>
       <MealsProvider>

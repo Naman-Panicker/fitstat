@@ -110,6 +110,7 @@ export default function AddMealScreen() {
       food,
       mealType: selectedMealType,
       servings: Math.max(Number(servings) || 1, 0.1),
+      loggedAt: new Date().toISOString().slice(0, 10),
     });
 
     router.back();

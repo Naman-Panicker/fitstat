@@ -29,8 +29,9 @@ type Props = {
   mealType: MealType;
   logs: MealLog[];
   totalCalories: number;
-  onAddFood: () => void;
+  onAddFood?: () => void;
   defaultExpanded?: boolean;
+  showAddButton?: boolean;
 };
 
 export default function MealSection({
@@ -39,6 +40,7 @@ export default function MealSection({
   totalCalories,
   onAddFood,
   defaultExpanded = true,
+  showAddButton = true,
 }: Props) {
   const [expanded, setExpanded] = useState(defaultExpanded);
 
@@ -82,13 +84,15 @@ export default function MealSection({
             logs.map((log) => <FoodItem key={log.id} log={log} />)
           )}
 
-          <Pressable
-            style={({ pressed }) => [styles.addButton, pressed && { opacity: 0.8 }]}
-            onPress={onAddFood}
-          >
-            <Ionicons name="add" size={16} color={colors.primary} />
-            <Text style={styles.addButtonText}>Add Food</Text>
-          </Pressable>
+          {showAddButton && onAddFood && (
+            <Pressable
+              style={({ pressed }) => [styles.addButton, pressed && { opacity: 0.8 }]}
+              onPress={onAddFood}
+            >
+              <Ionicons name="add" size={16} color={colors.primary} />
+              <Text style={styles.addButtonText}>Add Food</Text>
+            </Pressable>
+          )}
         </View>
       )}
     </View>
