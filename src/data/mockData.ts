@@ -26,15 +26,19 @@ export const mockFoodLibrary: FoodItem[] = [
   { id: 'f15', name: 'Pasta (cooked, 1 cup)', calories: 220, protein: 8, carbs: 43, fat: 1, fiber: 2 },
 ];
 
+/** Seed date — the migration seeds these logs with SQLite's date('now') default,
+ *  but the in-memory mock still needs a loggedAt for type-safety. */
+const SEED_DATE = '2026-01-01';
+
 export const mockDayLog: MealLog[] = [
-  { id: 'l1', food: mockFoodLibrary[0], mealType: 'breakfast', servings: 1 },
-  { id: 'l2', food: mockFoodLibrary[1], mealType: 'breakfast', servings: 1 },
-  { id: 'l3', food: mockFoodLibrary[2], mealType: 'breakfast', servings: 1 },
-  { id: 'l4', food: mockFoodLibrary[4], mealType: 'lunch', servings: 1 },
-  { id: 'l5', food: mockFoodLibrary[5], mealType: 'lunch', servings: 1 },
-  { id: 'l6', food: mockFoodLibrary[6], mealType: 'lunch', servings: 1 },
-  { id: 'l7', food: mockFoodLibrary[7], mealType: 'dinner', servings: 1 },
-  { id: 'l8', food: mockFoodLibrary[8], mealType: 'dinner', servings: 1 },
-  { id: 'l9', food: mockFoodLibrary[9], mealType: 'snacks', servings: 1 },
-  { id: 'l10', food: mockFoodLibrary[10], mealType: 'snacks', servings: 1 },
+  { id: 'l1', food: mockFoodLibrary[0], mealType: 'breakfast', servings: 1, loggedAt: SEED_DATE },
+  { id: 'l2', food: mockFoodLibrary[1], mealType: 'breakfast', servings: 1, loggedAt: SEED_DATE },
+  { id: 'l3', food: mockFoodLibrary[2], mealType: 'breakfast', servings: 1, loggedAt: SEED_DATE },
+  { id: 'l4', food: mockFoodLibrary[4], mealType: 'lunch', servings: 1, loggedAt: SEED_DATE },
+  { id: 'l5', food: mockFoodLibrary[5], mealType: 'lunch', servings: 1, loggedAt: SEED_DATE },
+  { id: 'l6', food: mockFoodLibrary[6], mealType: 'lunch', servings: 1, loggedAt: SEED_DATE },
+  { id: 'l7', food: mockFoodLibrary[7], mealType: 'dinner', servings: 1, loggedAt: SEED_DATE },
+  { id: 'l8', food: mockFoodLibrary[8], mealType: 'dinner', servings: 1, loggedAt: SEED_DATE },
+  { id: 'l9', food: mockFoodLibrary[9], mealType: 'snacks', servings: 1, loggedAt: SEED_DATE },
+  { id: 'l10', food: mockFoodLibrary[10], mealType: 'snacks', servings: 1, loggedAt: SEED_DATE },
 ];

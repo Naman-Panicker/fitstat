@@ -9,23 +9,36 @@ import { useSQLiteContext } from 'expo-sqlite';
 import { FoodItem, MealLog, MealType, DEV_USER_ID } from '../types';
 import {
   getAllFoodItems,
-  getAllMealLogs,
+  getMealLogsByDate,
   insertFoodItem,
   insertMealLog,
   deleteMealLog,
 } from '../db/queries';
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+/** Returns today's date as YYYY-MM-DD. */
+function todayDateString(): string {
+  const d = new Date();
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd}`;
+}
 
 // ─── State ────────────────────────────────────────────────────────────────────
 
 type State = {
   foodLibrary: FoodItem[];
   dayLog: MealLog[];
+  selectedDate: string; // YYYY-MM-DD
   isLoaded: boolean;
 };
 
 const initialState: State = {
   foodLibrary: [],
   dayLog: [],
+  selectedDate: todayDateString(),
   isLoaded: false,
 };
 
@@ -83,9 +96,10 @@ export function MealsProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     async function hydrate() {
       try {
+        const date = todayDateString();
         const [foodLibrary, dayLog] = await Promise.all([
           getAllFoodItems(db, DEV_USER_ID),
-          getAllMealLogs(db, DEV_USER_ID),
+          getMealLogsByDate(db, DEV_USER_ID, date),
         ]);
         dispatch({ type: 'HYDRATE', payload: { foodLibrary, dayLog } });
       } catch (e) {
@@ -110,7 +124,7 @@ export function MealsProvider({ children }: { children: ReactNode }) {
   };
 
   const logMeal = (log: MealLog) => {
-    insertMealLog(db, log, DEV_USER_ID).catch((e) =>
+    insertMealLog(db, log, DEV_USER_ID, state.selectedDate).catch((e) =>
       console.error('Failed to insert meal log:', e)
     );
     dispatch({ type: 'LOG_MEAL', payload: log });
