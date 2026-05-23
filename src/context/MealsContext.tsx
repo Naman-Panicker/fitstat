@@ -94,20 +94,28 @@ export function MealsProvider({ children }: { children: ReactNode }) {
 
   // Hydrate from SQLite on mount
   useEffect(() => {
+    let isMounted = true;
     async function hydrate() {
       try {
         const date = todayDateString();
-        const [foodLibrary, dayLog] = await Promise.all([
-          getAllFoodItems(db, DEV_USER_ID),
-          getMealLogsByDate(db, DEV_USER_ID, date),
-        ]);
+        // Fetch sequentially to prevent concurrent sqlite connection clashes
+        const foodLibrary = await getAllFoodItems(db, DEV_USER_ID);
+        if (!isMounted) return;
+        const dayLog = await getMealLogsByDate(db, DEV_USER_ID, date);
+        if (!isMounted) return;
+
         dispatch({ type: 'HYDRATE', payload: { foodLibrary, dayLog } });
       } catch (e) {
         console.error('SQLite hydration failed:', e);
-        dispatch({ type: 'HYDRATE', payload: { foodLibrary: [], dayLog: [] } });
+        if (isMounted) {
+          dispatch({ type: 'HYDRATE', payload: { foodLibrary: [], dayLog: [] } });
+        }
       }
     }
     hydrate();
+    return () => {
+      isMounted = false;
+    };
   }, [db]);
 
   const addFoodToLibrary = (food: FoodItem) => {

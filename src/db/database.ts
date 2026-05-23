@@ -2,7 +2,7 @@ import { type SQLiteDatabase } from 'expo-sqlite';
 import { mockFoodLibrary, mockDayLog } from '../data/mockData';
 import { DEV_USER_ID } from '../types';
 
-const DATABASE_VERSION = 5;
+const DATABASE_VERSION = 7;
 
 export async function migrateDbIfNeeded(db: SQLiteDatabase) {
   // ── Always-on pragmas (must run every connection, not just migrations) ─────
@@ -329,6 +329,204 @@ export async function migrateDbIfNeeded(db: SQLiteDatabase) {
       INSERT OR IGNORE INTO user_preferences (key, value) VALUES ('workout_unit', 'metric');
     `);
     currentDbVersion = 5;
+  }
+
+  // Migrate v5 -> v6: Rich 30-day progressive workout logs and daily meal logs (robust, FK-safe version)
+  if (currentDbVersion === 5) {
+    const daysAgo = (n: number): string => {
+      const d = new Date();
+      d.setDate(d.getDate() - n);
+      const yyyy = d.getFullYear();
+      const mm = String(d.getMonth() + 1).padStart(2, '0');
+      const dd = String(d.getDate()).padStart(2, '0');
+      return `${yyyy}-${mm}-${dd}`;
+    };
+
+    // Seed 15 workout logs over the last 30 days (odd days) for 4 major exercises
+    const exerciseIds = ['e13', 'e14', 'e18', 'e7'];
+
+    for (let day = 1; day <= 30; day += 2) {
+      const dateStr = daysAgo(day);
+      const workoutLogId = `hist-workout-d${day}`;
+
+      // Check if a log already exists for this date to avoid FK violation from ignored insert
+      const existingLog = await db.getFirstAsync<{ id: string }>(
+        'SELECT id FROM workout_logs WHERE user_id = ? AND logged_at = ?',
+        DEV_USER_ID,
+        dateStr
+      );
+
+      let activeLogId = workoutLogId;
+      if (existingLog) {
+        activeLogId = existingLog.id;
+      } else {
+        await db.runAsync(
+          'INSERT OR IGNORE INTO workout_logs (id, user_id, logged_at) VALUES (?, ?, ?)',
+          workoutLogId,
+          DEV_USER_ID,
+          dateStr
+        );
+      }
+
+      // Progressive strength factor (increases towards today: day 30 to day 1)
+      const progressionFactor = (30 - day) / 30;
+
+      for (const exId of exerciseIds) {
+        let baseWeight = 40; 
+        if (exId === 'e18') baseWeight = 60; // Squats
+        if (exId === 'e7') baseWeight = 20;  // Barbell Curls
+
+        const currentWeight = Math.round(baseWeight + (progressionFactor * 25));
+
+        for (let setIdx = 1; setIdx <= 3; setIdx++) {
+          const setId = `hist-set-d${day}-${exId}-${setIdx}`;
+          const reps = 12 - setIdx;
+
+          await db.runAsync(
+            'INSERT OR IGNORE INTO exercise_sets (id, workout_log_id, exercise_id, weight, reps, created_at) VALUES (?, ?, ?, ?, ?, ?)',
+            setId,
+            activeLogId, // Reference the guaranteed existing log ID
+            exId,
+            currentWeight,
+            reps,
+            `${dateStr} 10:00:00`
+          );
+        }
+      }
+    }
+
+    // Seed daily meal logs for 30 consecutive days with realistic variance
+    const foodItemsList = ['f1', 'f3', 'f5', 'f7', 'f8', 'f10', 'f13', 'f15'];
+
+    for (let day = 1; day <= 30; day++) {
+      const dateStr = daysAgo(day);
+
+      const breakfastFood = foodItemsList[day % foodItemsList.length];
+      const lunchFood = foodItemsList[(day + 1) % foodItemsList.length];
+      const dinnerFood = foodItemsList[(day + 2) % foodItemsList.length];
+      const snackFood = foodItemsList[(day + 3) % foodItemsList.length];
+
+      const meals = [
+        { type: 'breakfast', food: breakfastFood, servings: 1 },
+        { type: 'lunch', food: lunchFood, servings: 1.2 },
+        { type: 'dinner', food: dinnerFood, servings: 1.1 },
+        { type: 'snacks', food: snackFood, servings: 0.8 },
+      ];
+
+      for (let mIdx = 0; mIdx < meals.length; mIdx++) {
+        const meal = meals[mIdx];
+        const logId = `hist-meal-d${day}-${meal.type}`;
+        await db.runAsync(
+          'INSERT OR IGNORE INTO meal_logs (id, user_id, food_id, meal_type, servings, logged_at) VALUES (?, ?, ?, ?, ?, ?)',
+          logId,
+          DEV_USER_ID,
+          meal.food,
+          meal.type,
+          meal.servings,
+          dateStr
+        );
+      }
+    }
+
+    currentDbVersion = 6;
+  }
+
+  // Migrate v6 -> v7: Make sure the seeded progressive data is fully populated and safe
+  if (currentDbVersion === 6) {
+    const daysAgo = (n: number): string => {
+      const d = new Date();
+      d.setDate(d.getDate() - n);
+      const yyyy = d.getFullYear();
+      const mm = String(d.getMonth() + 1).padStart(2, '0');
+      const dd = String(d.getDate()).padStart(2, '0');
+      return `${yyyy}-${mm}-${dd}`;
+    };
+
+    const exerciseIds = ['e13', 'e14', 'e18', 'e7'];
+
+    for (let day = 1; day <= 30; day += 2) {
+      const dateStr = daysAgo(day);
+      const workoutLogId = `hist-workout-v7-d${day}`;
+
+      // Check if a log already exists for this date to avoid FK violation from ignored insert
+      const existingLog = await db.getFirstAsync<{ id: string }>(
+        'SELECT id FROM workout_logs WHERE user_id = ? AND logged_at = ?',
+        DEV_USER_ID,
+        dateStr
+      );
+
+      let activeLogId = workoutLogId;
+      if (existingLog) {
+        activeLogId = existingLog.id;
+      } else {
+        await db.runAsync(
+          'INSERT OR IGNORE INTO workout_logs (id, user_id, logged_at) VALUES (?, ?, ?)',
+          workoutLogId,
+          DEV_USER_ID,
+          dateStr
+        );
+      }
+
+      const progressionFactor = (30 - day) / 30;
+
+      for (const exId of exerciseIds) {
+        let baseWeight = 40;
+        if (exId === 'e18') baseWeight = 60;
+        if (exId === 'e7') baseWeight = 20;
+
+        const currentWeight = Math.round(baseWeight + (progressionFactor * 25));
+
+        for (let setIdx = 1; setIdx <= 3; setIdx++) {
+          const setId = `hist-set-v7-d${day}-${exId}-${setIdx}`;
+          const reps = 12 - setIdx;
+
+          await db.runAsync(
+            'INSERT OR IGNORE INTO exercise_sets (id, workout_log_id, exercise_id, weight, reps, created_at) VALUES (?, ?, ?, ?, ?, ?)',
+            setId,
+            activeLogId, // Reference the guaranteed existing log ID
+            exId,
+            currentWeight,
+            reps,
+            `${dateStr} 10:00:00`
+          );
+        }
+      }
+    }
+
+    // Seed daily meal logs for 30 consecutive days with realistic variance
+    const foodItemsList = ['f1', 'f3', 'f5', 'f7', 'f8', 'f10', 'f13', 'f15'];
+
+    for (let day = 1; day <= 30; day++) {
+      const dateStr = daysAgo(day);
+
+      const breakfastFood = foodItemsList[day % foodItemsList.length];
+      const lunchFood = foodItemsList[(day + 1) % foodItemsList.length];
+      const dinnerFood = foodItemsList[(day + 2) % foodItemsList.length];
+      const snackFood = foodItemsList[(day + 3) % foodItemsList.length];
+
+      const meals = [
+        { type: 'breakfast', food: breakfastFood, servings: 1 },
+        { type: 'lunch', food: lunchFood, servings: 1.2 },
+        { type: 'dinner', food: dinnerFood, servings: 1.1 },
+        { type: 'snacks', food: snackFood, servings: 0.8 },
+      ];
+
+      for (let mIdx = 0; mIdx < meals.length; mIdx++) {
+        const meal = meals[mIdx];
+        const logId = `hist-meal-v7-d${day}-${meal.type}`;
+        await db.runAsync(
+          'INSERT OR IGNORE INTO meal_logs (id, user_id, food_id, meal_type, servings, logged_at) VALUES (?, ?, ?, ?, ?, ?)',
+          logId,
+          DEV_USER_ID,
+          meal.food,
+          meal.type,
+          meal.servings,
+          dateStr
+        );
+      }
+    }
+
+    currentDbVersion = 7;
   }
 
   await db.execAsync(`PRAGMA user_version = ${DATABASE_VERSION}`);

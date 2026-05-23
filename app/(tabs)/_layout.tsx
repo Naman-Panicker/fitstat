@@ -21,8 +21,8 @@ export default function TabsLayout() {
         tabBarActiveTintColor: colors.primary,
         tabBarInactiveTintColor: colors.textMuted,
         tabBarLabelStyle: {
+          fontFamily: 'Jura-Medium',
           fontSize: 11,
-          fontWeight: '600',
           letterSpacing: 0.3,
         },
       }}

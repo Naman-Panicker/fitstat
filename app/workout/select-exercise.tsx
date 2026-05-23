@@ -21,7 +21,7 @@ import { getExercisesByMuscleGroup, addCustomExercise } from '@/src/db/queries';
 
 export default function SelectExerciseScreen() {
   const router = useRouter();
-  const params = useLocalSearchParams<{ muscle: MuscleGroup; label: string }>();
+  const params = useLocalSearchParams<{ muscle: MuscleGroup; label: string; date?: string }>();
   const db = useSQLiteContext();
 
   const muscleGroup = params.muscle ?? 'chest';
@@ -143,7 +143,7 @@ export default function SelectExerciseScreen() {
               onPress={() =>
                 router.push({
                   pathname: '/workout/track-exercise',
-                  params: { exerciseId: ex.id, exerciseName: ex.name },
+                  params: { exerciseId: ex.id, exerciseName: ex.name, date: params.date },
                 })
               }
             >

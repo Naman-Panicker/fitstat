@@ -8,7 +8,7 @@ import {
   ScrollView,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
+import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { colors, radius, spacing, typography } from '@/src/styles/globals';
 import { MuscleGroup } from '@/src/types';
@@ -16,23 +16,23 @@ import { MuscleGroup } from '@/src/types';
 interface MuscleItem {
   key: MuscleGroup;
   label: string;
-  icon: string;
 }
 
 const MUSCLE_GROUPS: MuscleItem[] = [
-  { key: 'abs', label: 'Abs', icon: 'fitness-outline' },
-  { key: 'back', label: 'Back', icon: 'body-outline' },
-  { key: 'biceps', label: 'Biceps', icon: 'barbell-outline' },
-  { key: 'cardio', label: 'Cardio', icon: 'heart-half-outline' },
-  { key: 'chest', label: 'Chest', icon: 'shield-half-outline' },
-  { key: 'forearms', label: 'Forearms', icon: 'hand-left-outline' },
-  { key: 'legs', label: 'Legs', icon: 'walk-outline' },
-  { key: 'shoulders', label: 'Shoulders', icon: 'git-commit-outline' },
-  { key: 'triceps', label: 'Triceps', icon: 'trending-up-outline' },
+  { key: 'abs', label: 'Abs' },
+  { key: 'back', label: 'Back' },
+  { key: 'biceps', label: 'Biceps' },
+  { key: 'cardio', label: 'Cardio' },
+  { key: 'chest', label: 'Chest' },
+  { key: 'forearms', label: 'Forearms' },
+  { key: 'legs', label: 'Legs' },
+  { key: 'shoulders', label: 'Shoulders' },
+  { key: 'triceps', label: 'Triceps' },
 ];
 
 export default function SelectMuscleScreen() {
   const router = useRouter();
+  const params = useLocalSearchParams<{ date?: string }>();
   const [search, setSearch] = useState('');
 
   const filteredMuscles = useMemo(() => {
@@ -98,16 +98,11 @@ export default function SelectMuscleScreen() {
             onPress={() =>
               router.push({
                 pathname: '/workout/select-exercise',
-                params: { muscle: muscle.key, label: muscle.label },
+                params: { muscle: muscle.key, label: muscle.label, date: params.date },
               })
             }
           >
-            <View style={styles.muscleLeft}>
-              <View style={styles.iconContainer}>
-                <Ionicons name={muscle.icon as any} size={20} color={colors.primary} />
-              </View>
-              <Text style={styles.muscleLabel}>{muscle.label}</Text>
-            </View>
+            <Text style={styles.muscleLabel}>{muscle.label}</Text>
             <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
           </Pressable>
         ))}
@@ -190,19 +185,6 @@ const styles = StyleSheet.create({
   muscleItemPressed: {
     backgroundColor: colors.backgroundElevated,
     opacity: 0.9,
-  },
-  muscleLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.md,
-  },
-  iconContainer: {
-    width: 38,
-    height: 38,
-    borderRadius: radius.md,
-    backgroundColor: colors.primaryDim,
-    alignItems: 'center',
-    justifyContent: 'center',
   },
   muscleLabel: {
     ...typography.titleSmall,

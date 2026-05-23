@@ -118,7 +118,6 @@ const styles = StyleSheet.create({
     ...typography.displayMedium,
     color: colors.text,
     fontSize: 26,
-    fontWeight: '800',
     letterSpacing: 0.5,
   },
 

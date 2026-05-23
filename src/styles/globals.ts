@@ -10,8 +10,8 @@ export const colors = {
   borderSubtle: '#141418',
 
   // Brand
-  primary: '#4fc3f7',
-  primaryDim: '#143a54',
+  primary: '#ffffff',
+  primaryDim: '#27272a',
 
   // Text
   text: '#f0f0ff',
@@ -19,7 +19,7 @@ export const colors = {
   textMuted: '#55556a',
 
   // Macros
-  calorieColor: '#4fc3f7',   // blue
+  calorieColor: '#ffffff',   // white
   proteinColor: '#4ade80',   // green
   carbColor: '#fbbf24',      // amber
   fatColor: '#f87171',       // red/coral
@@ -41,10 +41,11 @@ export const spacing = {
 };
 
 export const radius = {
-  sm: 8,
-  md: 12,
-  lg: 16,
-  xl: 24,
+  xs: 3,
+  sm: 4,
+  md: 6,
+  lg: 6,
+  xl: 8,
   full: 9999,
 };
 

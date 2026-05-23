@@ -8,6 +8,8 @@ import {
   Alert,
   ScrollView,
   TextInput,
+  Dimensions,
+  ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
@@ -16,14 +18,16 @@ import { TabView, type Route } from 'react-native-tab-view';
 import { useSQLiteContext } from 'expo-sqlite';
 import { colors, radius, spacing, typography } from '@/src/styles/globals';
 import {
-  getOrCreateTodayWorkoutLog,
   logExerciseSet,
-  getTodayLoggedSetsForExercise,
   getUserPreference,
   updateExerciseSet,
   deleteExerciseSet,
+  getLoggedSetsForExerciseOnDate,
+  getOrCreateWorkoutLogForDate,
+  getExerciseHistory,
 } from '@/src/db/queries';
 import { DEV_USER_ID, ExerciseSet } from '@/src/types';
+import WorkoutGraphTab from '@/components/workout/WorkoutGraphTab';
 
 // ─── Sub-Tab Custom Tab Bar ──────────────────────────────────────────────────
 
@@ -69,9 +73,10 @@ type TrackTabProps = {
   exerciseId: string;
   exerciseName: string;
   initialEditSetId?: string;
+  dateStr: string;
 };
 
-function TrackTab({ exerciseId, exerciseName, initialEditSetId }: TrackTabProps) {
+function TrackTab({ exerciseId, exerciseName, initialEditSetId, dateStr }: TrackTabProps) {
   const db = useSQLiteContext();
 
   // Unit preferences state
@@ -96,32 +101,31 @@ function TrackTab({ exerciseId, exerciseName, initialEditSetId }: TrackTabProps)
       const activeUnit = await getUserPreference(db, 'workout_unit');
       if (activeUnit === 'metric' || activeUnit === 'imperial') {
         setUnit(activeUnit);
+        return activeUnit;
       }
     } catch (e) {
       console.error("Failed to load unit preference:", e);
     }
+    return 'metric';
   }, [db]);
 
-  // Fetch logged sets for today
+  // Fetch logged sets for target date
   const fetchLoggedSets = useCallback(async () => {
     try {
-      const data = await getTodayLoggedSetsForExercise(db, DEV_USER_ID, exerciseId);
+      const data = await getLoggedSetsForExerciseOnDate(db, DEV_USER_ID, exerciseId, dateStr);
       setLoggedSets(data);
     } catch (e) {
       console.error('Failed to fetch logged sets:', e);
     }
-  }, [db, exerciseId]);
+  }, [db, exerciseId, dateStr]);
 
-  // Load preferences and then logged sets
+  // Load preferences sequentially and set default initial weight based on active unit, then fetch logged sets
   useEffect(() => {
-    fetchPreferences().then(() => {
-      fetchLoggedSets();
-    });
-  }, [db, fetchPreferences, fetchLoggedSets]);
+    let isMounted = true;
+    async function init() {
+      const activeUnit = await fetchPreferences();
+      if (!isMounted) return;
 
-  // Set default initial weight based on the active unit
-  useEffect(() => {
-    getUserPreference(db, 'workout_unit').then((activeUnit) => {
       if (activeUnit === 'imperial') {
         setWeight(135.0);
         setWeightInput('135.0');
@@ -129,8 +133,14 @@ function TrackTab({ exerciseId, exerciseName, initialEditSetId }: TrackTabProps)
         setWeight(60.0);
         setWeightInput('60.0');
       }
-    });
-  }, [db]);
+
+      await fetchLoggedSets();
+    }
+    init();
+    return () => {
+      isMounted = false;
+    };
+  }, [db, fetchPreferences, fetchLoggedSets]);
 
   // Deep Link: select the set if initialEditSetId matches when loggedSets are fetched
   useEffect(() => {
@@ -215,7 +225,7 @@ function TrackTab({ exerciseId, exerciseName, initialEditSetId }: TrackTabProps)
   const handleSave = async () => {
     setIsSaving(true);
     try {
-      const workoutLog = await getOrCreateTodayWorkoutLog(db, DEV_USER_ID);
+      const workoutLog = await getOrCreateWorkoutLogForDate(db, DEV_USER_ID, dateStr);
       // Convert weight back to kg if Imperial
       const weightInKg = unit === 'imperial' ? parseFloat((weight / 2.20462).toFixed(2)) : weight;
       await logExerciseSet(db, workoutLog.id, exerciseId, weightInKg, reps);
@@ -452,31 +462,106 @@ function TrackTab({ exerciseId, exerciseName, initialEditSetId }: TrackTabProps)
 
 // ─── Tab B: HISTORY placeholder ───────────────────────────────────────────────
 
-function HistoryPlaceholder() {
+// ─── Tab B: HISTORY Page ──────────────────────────────────────────────────────
+
+interface HistoryTabProps {
+  exerciseId: string;
+}
+
+interface HistoricalDay {
+  date: string;
+  sets: { id: string; weight: number; reps: number; createdAt: string }[];
+}
+
+function HistoryTab({ exerciseId }: HistoryTabProps) {
+  const db = useSQLiteContext();
+  const [history, setHistory] = useState<HistoricalDay[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [unit, setUnit] = useState<'metric' | 'imperial'>('metric');
+
+  const formatHistoryDate = (dateStr: string) => {
+    const d = new Date(dateStr);
+    const options: Intl.DateTimeFormatOptions = { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' };
+    return d.toLocaleDateString('en-US', options).toUpperCase();
+  };
+
+  const fetchHistory = useCallback(async () => {
+    setIsLoading(true);
+    try {
+      const activeUnit = await getUserPreference(db, 'workout_unit');
+      if (activeUnit === 'metric' || activeUnit === 'imperial') {
+        setUnit(activeUnit);
+      }
+      const data = await getExerciseHistory(db, DEV_USER_ID, exerciseId);
+      setHistory(data);
+    } catch (e) {
+      console.error('Failed to fetch exercise history:', e);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [db, exerciseId]);
+
+  useEffect(() => {
+    fetchHistory();
+  }, [fetchHistory]);
+
+  const displayWeight = (kg: number) => {
+    if (unit === 'imperial') {
+      return parseFloat((kg * 2.20462).toFixed(1));
+    }
+    return kg;
+  };
+
+  const unitLabel = unit === 'imperial' ? 'lbs' : 'kg';
+
+  if (isLoading) {
+    return (
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator color={colors.primary} size="large" />
+      </View>
+    );
+  }
+
+  if (history.length === 0) {
+    return (
+      <View style={styles.placeholderContainer}>
+        <Ionicons name="time-outline" size={44} color={colors.textMuted} />
+        <Text style={styles.placeholderTitle}>No History Yet</Text>
+        <Text style={styles.placeholderSubtitle}>
+          Complete and log sets for this exercise to start building your history.
+        </Text>
+      </View>
+    );
+  }
+
   return (
-    <View style={styles.placeholderContainer}>
-      <Ionicons name="time-outline" size={44} color={colors.textMuted} />
-      <Text style={styles.placeholderTitle}>History Coming Soon</Text>
-      <Text style={styles.placeholderSubtitle}>
-        View your past workouts and performance logs for this exercise.
-      </Text>
-    </View>
+    <ScrollView
+      style={styles.historyTabScroll}
+      contentContainerStyle={styles.historyTabContent}
+      showsVerticalScrollIndicator={false}
+    >
+      {history.map((day) => (
+        <View key={day.date} style={styles.historyCard}>
+          <Text style={styles.historyDateTitle}>
+            {formatHistoryDate(day.date)}
+          </Text>
+          <View style={styles.historySetsTable}>
+            {day.sets.map((set, idx) => (
+              <View key={set.id} style={styles.historySetRow}>
+                <Text style={styles.historySetLabel}>Set {idx + 1}</Text>
+                <Text style={styles.historySetValue}>
+                  {displayWeight(set.weight)} {unitLabel} × {set.reps} reps
+                </Text>
+              </View>
+            ))}
+          </View>
+        </View>
+      ))}
+    </ScrollView>
   );
 }
 
-// ─── Tab C: GRAPH placeholder ─────────────────────────────────────────────────
 
-function GraphPlaceholder() {
-  return (
-    <View style={styles.placeholderContainer}>
-      <Ionicons name="trending-up-outline" size={44} color={colors.textMuted} />
-      <Text style={styles.placeholderTitle}>Graphs Coming Soon</Text>
-      <Text style={styles.placeholderSubtitle}>
-        Visualise your progression and estimated 1-Rep Max trends over time.
-      </Text>
-    </View>
-  );
-}
 
 // ─── Main Component ───────────────────────────────────────────────────────────
 
@@ -489,11 +574,20 @@ const ROUTES: Route[] = [
 export default function TrackExerciseScreen() {
   const router = useRouter();
   const layout = useWindowDimensions();
-  const params = useLocalSearchParams<{ exerciseId: string; exerciseName: string; editSetId?: string }>();
+  const params = useLocalSearchParams<{ exerciseId: string; exerciseName: string; editSetId?: string; date?: string }>();
 
   const exerciseId = params.exerciseId ?? '';
   const exerciseName = params.exerciseName ?? 'Exercise';
   const editSetId = params.editSetId;
+
+  // Format today's date consistently (YYYY-MM-DD)
+  const dateStr = params.date ?? (() => {
+    const d = new Date();
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  })();
 
   const [index, setIndex] = useState(0);
 
@@ -506,17 +600,18 @@ export default function TrackExerciseScreen() {
               exerciseId={exerciseId}
               exerciseName={exerciseName}
               initialEditSetId={editSetId}
+              dateStr={dateStr}
             />
           );
         case 'history':
-          return <HistoryPlaceholder />;
+          return <HistoryTab exerciseId={exerciseId} />;
         case 'graph':
-          return <GraphPlaceholder />;
+          return <WorkoutGraphTab exerciseId={exerciseId} />;
         default:
           return null;
       }
     },
-    [exerciseId, exerciseName, editSetId]
+    [exerciseId, exerciseName, editSetId, dateStr]
   );
 
   const handleAction = (msg: string) => {
@@ -643,7 +738,7 @@ const styles = StyleSheet.create({
     borderBottomColor: 'transparent',
   },
   tabActive: {
-    borderBottomColor: '#26C6DA', // cyan active line matching image
+    borderBottomColor: colors.primary, // active line matching accent
   },
   tabLabel: {
     ...typography.labelLarge,
@@ -651,7 +746,7 @@ const styles = StyleSheet.create({
     letterSpacing: 0.8,
   },
   tabLabelActive: {
-    color: '#26C6DA', // cyan color matching image
+    color: colors.primary, // accent color
   },
 
   // Steppers Tab Content
@@ -675,7 +770,7 @@ const styles = StyleSheet.create({
   },
   dividerLine: {
     height: 2,
-    backgroundColor: '#26C6DA', // cyan horizontal bar matching weight/reps line
+    backgroundColor: colors.primary, // active line divider matching accent
     opacity: 0.9,
     marginBottom: spacing.xs,
   },
@@ -773,13 +868,14 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.sm,
     paddingHorizontal: spacing.sm,
     borderRadius: radius.md,
-    borderBottomWidth: 1,
+    borderWidth: 1,
+    borderColor: 'transparent',
     borderBottomColor: colors.borderSubtle,
   },
   loggedSetRowSelected: {
-    backgroundColor: 'rgba(38, 198, 218, 0.1)',
-    borderColor: '#26C6DA',
-    borderWidth: 1,
+    backgroundColor: 'rgba(79, 195, 247, 0.08)',
+    borderColor: colors.primary,
+    borderBottomColor: colors.primary,
   },
   loggedSetLeft: {
     flexDirection: 'row',
@@ -834,5 +930,57 @@ const styles = StyleSheet.create({
     color: colors.textMuted,
     textAlign: 'center',
     lineHeight: 18,
+  },
+
+  // History Tab Styles
+  historyTabScroll: {
+    flex: 1,
+  },
+  historyTabContent: {
+    padding: spacing.md,
+    paddingBottom: spacing.xxl,
+  },
+  historyCard: {
+    backgroundColor: colors.surface,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    padding: spacing.md,
+    marginBottom: spacing.md,
+  },
+  historyDateTitle: {
+    fontFamily: 'Jura-Bold',
+    fontSize: 14,
+    color: colors.primary,
+    letterSpacing: 1.0,
+    marginBottom: spacing.sm,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.borderSubtle,
+    paddingBottom: spacing.xs,
+  },
+  historySetsTable: {
+    gap: spacing.xs,
+  },
+  historySetRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: spacing.xs,
+  },
+  historySetLabel: {
+    fontFamily: 'Jura-Regular',
+    fontSize: 13,
+    color: colors.textMuted,
+  },
+  historySetValue: {
+    fontFamily: 'Jura-Bold',
+    fontSize: 14,
+    color: colors.textSecondary,
+  },
+  loadingContainer: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.background,
   },
 });

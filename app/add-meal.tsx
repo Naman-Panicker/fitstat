@@ -415,9 +415,9 @@ const styles = StyleSheet.create({
     gap: 2,
   },
   libraryItemName: {
-    ...typography.bodyMedium,
+    ...typography.titleSmall,
     color: colors.text,
-    fontWeight: '500',
+    fontSize: 14,
   },
   libraryItemMacros: {
     ...typography.bodySmall,

@@ -5,7 +5,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 import { colors, radius, spacing, typography } from '@/src/styles/globals';
-import { getTodayLoggedSets, LoggedSetDetail, getUserPreference, setUserPreference } from '@/src/db/queries';
+import { getLoggedSetsForDate, LoggedSetDetail, getUserPreference, setUserPreference, getOrCreateWorkoutLogForDate } from '@/src/db/queries';
 import { DEV_USER_ID } from '@/src/types';
 
 // Grouping structure for displaying today's logged sets
@@ -20,12 +20,45 @@ export default function WorkoutsScreen() {
   const router = useRouter();
   const db = useSQLiteContext();
 
+  const [selectedDate, setSelectedDate] = useState<Date>(new Date());
   const [todaySets, setTodaySets] = useState<LoggedSetDetail[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
   // Settings states
   const [unit, setUnit] = useState<'metric' | 'imperial'>('metric');
   const [settingsVisible, setSettingsVisible] = useState(false);
+
+  // Touch gesture state
+  const touchStartX = React.useRef(0);
+
+  // Helper: Format Date to YYYY-MM-DD
+  const dateToSqlStr = (d: Date): string => {
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  };
+
+  // Helper: Format Date Title
+  const formatDateTitle = (date: Date) => {
+    const today = new Date();
+    const yesterday = new Date();
+    yesterday.setDate(today.getDate() - 1);
+    
+    const dStr = dateToSqlStr(date);
+    const todayStrVal = dateToSqlStr(today);
+    const yesterdayStrVal = dateToSqlStr(yesterday);
+    
+    if (dStr === todayStrVal) {
+      return 'TODAY';
+    }
+    if (dStr === yesterdayStrVal) {
+      return 'YESTERDAY';
+    }
+    
+    const options: Intl.DateTimeFormatOptions = { weekday: 'short', month: 'short', day: 'numeric' };
+    return date.toLocaleDateString('en-US', options).toUpperCase();
+  };
 
   // Fetch unit preferences
   const fetchPreferences = useCallback(async () => {
@@ -39,25 +72,39 @@ export default function WorkoutsScreen() {
     }
   }, [db]);
 
-  // Fetch today's sets
-  const fetchTodaySets = useCallback(async () => {
+  // Fetch sets for selected date
+  const fetchSets = useCallback(async () => {
     setIsLoading(true);
     try {
-      const sets = await getTodayLoggedSets(db, DEV_USER_ID);
+      const dateStr = dateToSqlStr(selectedDate);
+      const sets = await getLoggedSetsForDate(db, DEV_USER_ID, dateStr);
       setTodaySets(sets);
     } catch (e) {
-      console.error("Failed to load today's sets:", e);
+      console.error("Failed to load sets for date:", e);
     } finally {
       setIsLoading(false);
     }
-  }, [db]);
+  }, [db, selectedDate]);
 
-  // Re-fetch whenever the screen becomes active
+  // Re-fetch whenever screen active or date changes
   useFocusEffect(
     useCallback(() => {
-      fetchPreferences();
-      fetchTodaySets();
-    }, [fetchPreferences, fetchTodaySets])
+      let isMounted = true;
+      async function loadData() {
+        try {
+          await fetchPreferences();
+          if (isMounted) {
+            await fetchSets();
+          }
+        } catch (e) {
+          console.error("Failed to load workouts data sequentially:", e);
+        }
+      }
+      loadData();
+      return () => {
+        isMounted = false;
+      };
+    }, [fetchPreferences, fetchSets])
   );
 
   // Unit settings toggling handler
@@ -80,6 +127,50 @@ export default function WorkoutsScreen() {
 
   const unitLabel = unit === 'imperial' ? 'lbs' : 'kg';
 
+  // Day togglers
+  const handlePreviousDay = () => {
+    setSelectedDate((prev) => {
+      const next = new Date(prev);
+      next.setDate(prev.getDate() - 1);
+      return next;
+    });
+  };
+
+  const handleNextDay = () => {
+    const todayStrVal = dateToSqlStr(new Date());
+    const selectedStrVal = dateToSqlStr(selectedDate);
+    if (selectedStrVal === todayStrVal) {
+      // Block future dates
+      return;
+    }
+    setSelectedDate((prev) => {
+      const next = new Date(prev);
+      next.setDate(prev.getDate() + 1);
+      return next;
+    });
+  };
+
+  // Swipe gesture handlers
+  const handleTouchStart = (e: any) => {
+    touchStartX.current = e.nativeEvent.pageX;
+  };
+
+  const handleTouchEnd = (e: any) => {
+    const touchEndX = e.nativeEvent.pageX;
+    const dx = touchEndX - touchStartX.current;
+    const swipeThreshold = 60; // minimum swipe displacement
+
+    if (dx > swipeThreshold) {
+      // Swiped right -> go to PREVIOUS day
+      handlePreviousDay();
+    } else if (dx < -swipeThreshold) {
+      // Swiped left -> go to NEXT day
+      handleNextDay();
+    }
+  };
+
+  const isToday = dateToSqlStr(selectedDate) === dateToSqlStr(new Date());
+
   // Group logged sets by exercise
   const groupedWorkouts = useMemo(() => {
     const map = new Map<string, GroupedSets>();
@@ -101,108 +192,138 @@ export default function WorkoutsScreen() {
     return Array.from(map.values());
   }, [todaySets]);
 
+  const dateStrParam = dateToSqlStr(selectedDate);
+
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
-      {/* Visual Navigation Top Bar — Consistent with Meals */}
-      <View style={styles.topBar}>
-        <Text style={styles.headerTitle}>Workouts</Text>
-        <Pressable
-          style={({ pressed }) => [styles.settingsBtn, pressed && { opacity: 0.6 }]}
-          onPress={() => setSettingsVisible(true)}
-        >
-          <Ionicons name="settings-outline" size={24} color={colors.text} />
-        </Pressable>
-      </View>
-
-      {/* Date Subheader */}
-      <View style={styles.subHeader}>
-        <Pressable style={({ pressed }) => [styles.arrowBtn, pressed && { opacity: 0.6 }]}>
-          <Ionicons name="chevron-back-sharp" size={20} color={colors.primary} />
-        </Pressable>
-        <Text style={styles.dateTitle}>TODAY</Text>
-        <Pressable style={({ pressed }) => [styles.arrowBtn, pressed && { opacity: 0.6 }]}>
-          <Ionicons name="chevron-forward-sharp" size={20} color={colors.primary} />
-        </Pressable>
-      </View>
-
-      {/* Scrollable Workouts List or Empty State */}
-      {isLoading ? (
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator color={colors.primary} size="large" />
+      {/* Visual Navigation Gesture Area wrapper */}
+      <View
+        style={{ flex: 1 }}
+        onTouchStart={handleTouchStart}
+        onTouchEnd={handleTouchEnd}
+      >
+        {/* Visual Navigation Top Bar — Consistent with Meals */}
+        <View style={styles.topBar}>
+          <Text style={styles.headerTitle}>Workouts</Text>
+          <Pressable
+            style={({ pressed }) => [styles.settingsBtn, pressed && { opacity: 0.6 }]}
+            onPress={() => setSettingsVisible(true)}
+          >
+            <Ionicons name="settings-outline" size={24} color={colors.text} />
+          </Pressable>
         </View>
-      ) : (
-        <ScrollView
-          style={styles.bodyScroll}
-          contentContainerStyle={styles.bodyContent}
-          showsVerticalScrollIndicator={false}
-        >
-          {groupedWorkouts.length === 0 ? (
-            <View style={styles.emptyContainer}>
-              <Ionicons name="barbell-outline" size={48} color={colors.textMuted} />
-              <Text style={styles.emptyText}>Workout Log Empty</Text>
-              <Text style={styles.emptySubtext}>Start a new workout to log your exercises</Text>
-            </View>
-          ) : (
-            groupedWorkouts.map((workout) => (
-              <View key={workout.exerciseId} style={styles.workoutCard}>
-                {/* Clicking on the header cards lets them track new sets of this exercise */}
-                <Pressable
-                  style={styles.cardHeader}
-                  onPress={() =>
-                    router.push({
-                      pathname: '/workout/track-exercise',
-                      params: { exerciseId: workout.exerciseId, exerciseName: workout.exerciseName },
-                    })
-                  }
-                >
-                  <Text style={styles.exerciseTitle}>{workout.exerciseName}</Text>
-                  <View style={styles.muscleBadge}>
-                    <Text style={styles.muscleBadgeText}>
-                      {workout.muscleGroup.toUpperCase()}
-                    </Text>
-                  </View>
-                </Pressable>
-                <View style={styles.setsList}>
-                  {workout.sets.map((set, i) => (
-                    <Pressable
-                      key={set.id}
-                      style={({ pressed }) => [
-                        styles.setRow,
-                        pressed && styles.setRowPressed,
-                      ]}
-                      onPress={() =>
-                        router.push({
-                          pathname: '/workout/track-exercise',
-                          params: {
-                            exerciseId: workout.exerciseId,
-                            exerciseName: workout.exerciseName,
-                            editSetId: set.id,
-                          },
-                        })
-                      }
-                    >
-                      <Text style={styles.setLabel}>Set {i + 1}</Text>
-                      <Text style={styles.setValue}>
-                        {displayWeight(set.weight)} {unitLabel} × {set.reps} reps
-                      </Text>
-                    </Pressable>
-                  ))}
-                </View>
-              </View>
-            ))
-          )}
-        </ScrollView>
-      )}
 
-      {/* Bottom Action Controls */}
-      <View style={styles.bottomActions}>
-        <Pressable
-          style={({ pressed }) => [styles.actionBlock, pressed && { opacity: 0.75 }]}
-          onPress={() => router.push('/workout/select-muscle')}
-        >
-          <Ionicons name="add" size={32} color={colors.primary} />
-          <Text style={styles.actionText}>Start New Workout</Text>
-        </Pressable>
+        {/* Date Subheader */}
+        <View style={styles.subHeader}>
+          <Pressable
+            style={({ pressed }) => [styles.arrowBtn, pressed && { opacity: 0.6 }]}
+            onPress={handlePreviousDay}
+          >
+            <Ionicons name="chevron-back-sharp" size={20} color={colors.primary} />
+          </Pressable>
+          <Text style={styles.dateTitle}>{formatDateTitle(selectedDate)}</Text>
+          <Pressable
+            style={({ pressed }) => [styles.arrowBtn, (pressed && !isToday) && { opacity: 0.6 }]}
+            onPress={handleNextDay}
+            disabled={isToday}
+          >
+            <Ionicons
+              name="chevron-forward-sharp"
+              size={20}
+              color={isToday ? colors.textMuted : colors.primary}
+            />
+          </Pressable>
+        </View>
+
+        {/* Scrollable Workouts List or Empty State */}
+        {isLoading ? (
+          <View style={styles.loadingContainer}>
+            <ActivityIndicator color={colors.primary} size="large" />
+          </View>
+        ) : (
+          <ScrollView
+            style={styles.bodyScroll}
+            contentContainerStyle={styles.bodyContent}
+            showsVerticalScrollIndicator={false}
+          >
+            {groupedWorkouts.length === 0 ? (
+              <View style={styles.emptyContainer}>
+                <Ionicons name="barbell-outline" size={48} color={colors.textMuted} />
+                <Text style={styles.emptyText}>Workout Log Empty</Text>
+                <Text style={styles.emptySubtext}>Start a new workout to log your exercises</Text>
+              </View>
+            ) : (
+              groupedWorkouts.map((workout) => (
+                <View key={workout.exerciseId} style={styles.workoutCard}>
+                  {/* Clicking on the header cards lets them track new sets of this exercise */}
+                  <Pressable
+                    style={styles.cardHeader}
+                    onPress={() =>
+                      router.push({
+                        pathname: '/workout/track-exercise',
+                        params: {
+                          exerciseId: workout.exerciseId,
+                          exerciseName: workout.exerciseName,
+                          date: dateStrParam,
+                        },
+                      })
+                    }
+                  >
+                    <Text style={styles.exerciseTitle}>{workout.exerciseName}</Text>
+                    <View style={styles.muscleBadge}>
+                      <Text style={styles.muscleBadgeText}>
+                        {workout.muscleGroup.toUpperCase()}
+                      </Text>
+                    </View>
+                  </Pressable>
+                  <View style={styles.setsList}>
+                    {workout.sets.map((set, i) => (
+                      <Pressable
+                        key={set.id}
+                        style={({ pressed }) => [
+                          styles.setRow,
+                          pressed && styles.setRowPressed,
+                        ]}
+                        onPress={() =>
+                          router.push({
+                            pathname: '/workout/track-exercise',
+                            params: {
+                              exerciseId: workout.exerciseId,
+                              exerciseName: workout.exerciseName,
+                              editSetId: set.id,
+                              date: dateStrParam,
+                            },
+                          })
+                        }
+                      >
+                        <Text style={styles.setLabel}>Set {i + 1}</Text>
+                        <Text style={styles.setValue}>
+                          {displayWeight(set.weight)} {unitLabel} × {set.reps} reps
+                        </Text>
+                      </Pressable>
+                    ))}
+                  </View>
+                </View>
+              ))
+            )}
+          </ScrollView>
+        )}
+
+        {/* Bottom Action Controls */}
+        <View style={styles.bottomActions}>
+          <Pressable
+            style={({ pressed }) => [styles.actionBlock, pressed && { opacity: 0.75 }]}
+            onPress={() =>
+              router.push({
+                pathname: '/workout/select-muscle',
+                params: { date: dateStrParam },
+              })
+            }
+          >
+            <Ionicons name="add" size={32} color={colors.primary} />
+            <Text style={styles.actionText}>Start New Workout</Text>
+          </Pressable>
+        </View>
       </View>
 
       {/* Settings Modal Sheet */}

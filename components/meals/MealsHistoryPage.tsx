@@ -37,13 +37,16 @@ function reducer(state: State, action: Action): State {
   switch (action.type) {
     case 'FETCH_START':
       return { ...state, isLoading: true };
-    case 'FETCH_SUCCESS':
+    case 'FETCH_SUCCESS': {
+      const existing = new Set(state.days.map((d) => d.date));
+      const filteredNew = action.payload.newDays.filter((d) => !existing.has(d.date));
       return {
-        days: [...state.days, ...action.payload.newDays],
+        days: [...state.days, ...filteredNew],
         cursor: action.payload.oldestDate,
         hasMore: action.payload.hasMore,
         isLoading: false,
       };
+    }
     case 'FETCH_ERROR':
       return { ...state, isLoading: false };
     default:
@@ -65,6 +68,8 @@ function tomorrowStr(): string {
 export default function MealsHistoryPage() {
   const db = useSQLiteContext();
   const isFetchingRef = useRef(false);
+  const lastFetchedCursorRef = useRef<string | null>(null);
+
   const [state, dispatch] = useReducer(reducer, {
     days: [],
     cursor: null,
@@ -75,11 +80,15 @@ export default function MealsHistoryPage() {
   const loadMore = useCallback(async () => {
     if (isFetchingRef.current || !state.hasMore) return;
 
+    const beforeDate = state.cursor ?? tomorrowStr();
+    // Prevent fetching the exact same cursor multiple times concurrently
+    if (lastFetchedCursorRef.current === beforeDate) return;
+
     isFetchingRef.current = true;
+    lastFetchedCursorRef.current = beforeDate;
     dispatch({ type: 'FETCH_START' });
 
     try {
-      const beforeDate = state.cursor ?? tomorrowStr();
       const dates = await getLoggedDates(db, DEV_USER_ID, beforeDate, PAGE_SIZE);
 
       if (dates.length === 0) {
@@ -87,7 +96,6 @@ export default function MealsHistoryPage() {
           type: 'FETCH_SUCCESS',
           payload: { newDays: [], oldestDate: state.cursor, hasMore: false },
         });
-        isFetchingRef.current = false;
         return;
       }
 
@@ -111,6 +119,8 @@ export default function MealsHistoryPage() {
       });
     } catch (e) {
       console.error('History fetch failed:', e);
+      // Reset ref on failure to allow retry
+      lastFetchedCursorRef.current = null;
       dispatch({ type: 'FETCH_ERROR' });
     } finally {
       isFetchingRef.current = false;

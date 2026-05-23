@@ -615,5 +615,172 @@ export async function deleteExerciseSet(
   );
 }
 
+/**
+ * Fetches all completed sets for a specific user and date string.
+ */
+export async function getLoggedSetsForDate(
+  db: SQLiteDatabase,
+  userId: string,
+  dateStr: string
+): Promise<LoggedSetDetail[]> {
+  const rows = await db.getAllAsync<{
+    id: string;
+    workout_log_id: string;
+    exercise_id: string;
+    exercise_name: string;
+    muscle_group: string;
+    weight: number;
+    reps: number;
+    created_at: string;
+  }>(
+    `SELECT
+       es.id,
+       es.workout_log_id,
+       es.exercise_id,
+       e.name AS exercise_name,
+       e.muscle_group,
+       es.weight,
+       es.reps,
+       es.created_at
+     FROM exercise_sets es
+     JOIN workout_logs wl ON wl.id = es.workout_log_id
+     JOIN exercises e ON e.id = es.exercise_id
+     WHERE wl.user_id = ? AND wl.logged_at = ?
+     ORDER BY es.created_at ASC`,
+    userId,
+    dateStr
+  );
+
+  return rows.map((r) => ({
+    id: r.id,
+    workoutLogId: r.workout_log_id,
+    exerciseId: r.exercise_id,
+    exerciseName: r.exercise_name,
+    muscleGroup: r.muscle_group as MuscleGroup,
+    weight: r.weight,
+    reps: r.reps,
+    createdAt: r.created_at,
+  }));
+}
+
+/**
+ * Returns a workout log for a specific date or creates it if not exists.
+ */
+export async function getOrCreateWorkoutLogForDate(
+  db: SQLiteDatabase,
+  userId: string,
+  dateStr: string
+): Promise<WorkoutLog> {
+  // Try to find
+  const row = await db.getFirstAsync<{ id: string; user_id: string; logged_at: string }>(
+    'SELECT id, user_id, logged_at FROM workout_logs WHERE user_id = ? AND logged_at = ?',
+    userId,
+    dateStr
+  );
+
+  if (row) {
+    return {
+      id: row.id,
+      userId: row.user_id,
+      loggedAt: row.logged_at,
+    };
+  }
+
+  // Create
+  const id = `wl-${Math.random().toString(36).slice(2)}-${Date.now().toString(36)}`;
+  await db.runAsync(
+    'INSERT INTO workout_logs (id, user_id, logged_at) VALUES (?, ?, ?)',
+    id,
+    userId,
+    dateStr
+  );
+
+  return {
+    id,
+    userId,
+    loggedAt: dateStr,
+  };
+}
+
+/**
+ * Fetches all historical sets for a specific exercise grouped by date.
+ */
+export async function getExerciseHistory(
+  db: SQLiteDatabase,
+  userId: string,
+  exerciseId: string
+): Promise<{ date: string; sets: { id: string; weight: number; reps: number; createdAt: string }[] }[]> {
+  const rows = await db.getAllAsync<{
+    id: string;
+    weight: number;
+    reps: number;
+    created_at: string;
+    logged_at: string;
+  }>(
+    `SELECT es.id, es.weight, es.reps, es.created_at, wl.logged_at
+     FROM exercise_sets es
+     JOIN workout_logs wl ON wl.id = es.workout_log_id
+     WHERE wl.user_id = ? AND es.exercise_id = ?
+     ORDER BY wl.logged_at DESC, es.created_at ASC`,
+    userId,
+    exerciseId
+  );
+
+  const map = new Map<string, { id: string; weight: number; reps: number; createdAt: string }[]>();
+  for (const r of rows) {
+    if (!map.has(r.logged_at)) {
+      map.set(r.logged_at, []);
+    }
+    map.get(r.logged_at)!.push({
+      id: r.id,
+      weight: r.weight,
+      reps: r.reps,
+      createdAt: r.created_at,
+    });
+  }
+
+  return Array.from(map.entries()).map(([date, sets]) => ({
+    date,
+    sets,
+  }));
+}
+
+/**
+ * Fetches all completed sets for a specific exercise and date string.
+ */
+export async function getLoggedSetsForExerciseOnDate(
+  db: SQLiteDatabase,
+  userId: string,
+  exerciseId: string,
+  dateStr: string
+): Promise<ExerciseSet[]> {
+  const rows = await db.getAllAsync<{
+    id: string;
+    workout_log_id: string;
+    exercise_id: string;
+    weight: number;
+    reps: number;
+    created_at: string;
+  }>(
+    `SELECT es.id, es.workout_log_id, es.exercise_id, es.weight, es.reps, es.created_at
+     FROM exercise_sets es
+     JOIN workout_logs wl ON wl.id = es.workout_log_id
+     WHERE wl.user_id = ? AND wl.logged_at = ? AND es.exercise_id = ?
+     ORDER BY es.created_at ASC`,
+    userId,
+    dateStr,
+    exerciseId
+  );
+
+  return rows.map((r) => ({
+    id: r.id,
+    workoutLogId: r.workout_log_id,
+    exerciseId: r.exercise_id,
+    weight: r.weight,
+    reps: r.reps,
+    createdAt: r.created_at,
+  }));
+}
+
 
 

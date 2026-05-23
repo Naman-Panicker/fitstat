@@ -38,7 +38,7 @@ export default function RootLayout() {
               title: 'Log Food',
               headerStyle: { backgroundColor: colors.backgroundElevated },
               headerTintColor: colors.text,
-              headerTitleStyle: { fontWeight: '600', fontSize: 17 },
+              headerTitleStyle: { fontFamily: 'Jura-Bold', fontSize: 17 },
               headerShadowVisible: false,
               presentation: 'card',
             }}
