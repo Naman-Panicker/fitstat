@@ -10,6 +10,8 @@ import {
   TextInput,
   Dimensions,
   ActivityIndicator,
+  KeyboardAvoidingView,
+  Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
@@ -458,7 +460,7 @@ function TrackTab({ exerciseId, exerciseName, initialEditSetId, dateStr }: Track
           })}
         </View>
       )}
-    </ScrollView>
+      </ScrollView>
   );
 }
 

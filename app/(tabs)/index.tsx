@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   ScrollView,
   View,
@@ -20,6 +20,10 @@ import { colors, globalStyles, radius, spacing, typography } from '@/src/styles/
 import { useMeals } from '@/src/context/MealsContext';
 import { DAILY_GOALS } from '@/src/data/mockData';
 import { MealType } from '@/src/types';
+import { useSQLiteContext } from 'expo-sqlite';
+import { useAuth } from '@/src/context/AuthContext';
+import { calculateActiveLoggingStreak, fetchUserNotifications, clearAllNotifications, syncSystemNotifications, SystemNotification } from '@/src/db/queries';
+import { useIsFocused } from '@react-navigation/native';
 
 const screenWidth = Dimensions.get('window').width;
 
@@ -35,6 +39,58 @@ export default function HomeScreen() {
   const router = useRouter();
   const { getMealCalories, getTotals } = useMeals();
   const totals = getTotals();
+  const db = useSQLiteContext();
+  const { userId, session } = useAuth();
+  const isFocused = useIsFocused();
+
+  // Streak state
+  const [streakData, setStreakData] = useState<{ streakCount: number; isActive: boolean }>({
+    streakCount: 0,
+    isActive: false,
+  });
+
+  // Notifications state
+  const [notifications, setNotifications] = useState<SystemNotification[]>([]);
+
+  // Fetch streak and notifications whenever screen gains focus
+  useEffect(() => {
+    if (isFocused) {
+      async function loadData() {
+        const data = await calculateActiveLoggingStreak(db, userId);
+        setStreakData(data);
+
+        // Sync and fetch dynamic system notifications
+        await syncSystemNotifications(db, userId, session !== null);
+        const list = await fetchUserNotifications(db, userId);
+        setNotifications(list);
+      }
+      loadData();
+    }
+  }, [isFocused, db, userId, session]);
+
+  const handleClearAll = async () => {
+    await clearAllNotifications(db, userId);
+    setNotifications([]);
+  };
+
+  const handleStreakPress = () => {
+    if (streakData.isActive) {
+      Alert.alert(
+        'Active Streak! 🔥',
+        `You have logged your meals or workouts for ${streakData.streakCount} consecutive days! Keep up the incredible momentum!`
+      );
+    } else if (streakData.streakCount === 1) {
+      Alert.alert(
+        'Streak Progress ⚡',
+        'You have logged for 1 day! Log a meal or workout tomorrow to officially activate your consecutive-day streak!'
+      );
+    } else {
+      Alert.alert(
+        'No Active Streak :(',
+        'Log a workout or a meal today to start building your daily streak!'
+      );
+    }
+  };
 
   // Notification modal visibility state
   const [notificationsModalVisible, setNotificationsModalVisible] = useState(false);
@@ -55,11 +111,21 @@ export default function HomeScreen() {
         <View style={styles.headerActions}>
           {/* Streak Action */}
           <Pressable
-            style={({ pressed }) => [styles.streakContainer, pressed && { opacity: 0.7 }]}
-            onPress={() => Alert.alert('Active Streak', 'You have logged data for 3 consecutive days! Keep it up!')}
+            style={({ pressed }) => [
+              styles.streakContainer,
+              streakData.isActive && { borderColor: 'rgba(251, 146, 60, 0.4)' },
+              pressed && { opacity: 0.7 }
+            ]}
+            onPress={handleStreakPress}
           >
-            <Ionicons name="flame" size={20} color="#fb923c" />
-            <Text style={styles.streakText}>3</Text>
+            <Ionicons
+              name="flame"
+              size={20}
+              color={streakData.isActive ? '#fb923c' : colors.textSecondary}
+            />
+            <Text style={[styles.streakText, !streakData.isActive && { color: colors.textSecondary }]}>
+              {streakData.streakCount}
+            </Text>
           </Pressable>
 
           {/* Notifications Action */}
@@ -68,7 +134,7 @@ export default function HomeScreen() {
             onPress={() => setNotificationsModalVisible(true)}
           >
             <Ionicons name="notifications-outline" size={21} color={colors.text} />
-            <View style={styles.dotBadge} />
+            {notifications.length > 0 && <View style={styles.dotBadge} />}
           </Pressable>
 
           {/* Profile Action */}
@@ -165,35 +231,56 @@ export default function HomeScreen() {
           <View style={styles.notificationCard}>
             <View style={styles.notificationHeader}>
               <Text style={styles.notificationTitle}>System Alerts</Text>
-              <Pressable onPress={() => setNotificationsModalVisible(false)}>
-                <Ionicons name="close" size={20} color={colors.textSecondary} />
-              </Pressable>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.md }}>
+                {notifications.length > 0 && (
+                  <Pressable onPress={handleClearAll} style={{ marginRight: 2 }}>
+                    <Text style={{ ...typography.labelSmall, color: colors.alert, fontSize: 11, fontFamily: 'Jura-Bold' }}>
+                      Clear All
+                    </Text>
+                  </Pressable>
+                )}
+                <Pressable onPress={() => setNotificationsModalVisible(false)}>
+                  <Ionicons name="close" size={20} color={colors.textSecondary} />
+                </Pressable>
+              </View>
             </View>
 
             <ScrollView showsVerticalScrollIndicator={false} style={styles.notificationList}>
-              <View style={styles.notificationItem}>
-                <Ionicons name="flame" size={18} color="#fb923c" />
-                <View style={styles.notificationTextCol}>
-                  <Text style={styles.notificationItemTitle}>Streak Alert!</Text>
-                  <Text style={styles.notificationItemDesc}>Maintain your streak by logging meals today.</Text>
+              {notifications.length === 0 ? (
+                <View style={styles.emptyNotifications}>
+                  <Ionicons name="notifications-off-outline" size={28} color={colors.textMuted} style={{ marginBottom: spacing.xs }} />
+                  <Text style={styles.emptyText}>You are all caught up!</Text>
                 </View>
-              </View>
+              ) : (
+                notifications.map((notif) => {
+                  let iconName = 'notifications-outline';
+                  let iconColor = colors.primary;
 
-              <View style={styles.notificationItem}>
-                <Ionicons name="cloud-done" size={18} color={colors.success} />
-                <View style={styles.notificationTextCol}>
-                  <Text style={styles.notificationItemTitle}>Cloud Engine Active</Text>
-                  <Text style={styles.notificationItemDesc}>Cloud migration pipeline initialized & persistent.</Text>
-                </View>
-              </View>
+                  if (notif.type === 'streak') {
+                    iconName = 'flame';
+                    iconColor = '#fb923c';
+                  } else if (notif.type === 'sync') {
+                    iconName = 'cloud-done-outline';
+                    iconColor = colors.alert;
+                  } else if (notif.type === 'workout') {
+                    iconName = 'barbell';
+                    iconColor = colors.success;
+                  } else if (notif.type === 'meal') {
+                    iconName = 'restaurant';
+                    iconColor = colors.proteinColor;
+                  }
 
-              <View style={styles.notificationItem}>
-                <Ionicons name="shield-checkmark" size={18} color={colors.proteinColor} />
-                <View style={styles.notificationTextCol}>
-                  <Text style={styles.notificationItemTitle}>Offline-First Mode</Text>
-                  <Text style={styles.notificationItemDesc}>Data saved securely in local SQLite storage.</Text>
-                </View>
-              </View>
+                  return (
+                    <View key={notif.id} style={styles.notificationItem}>
+                      <Ionicons name={iconName as any} size={18} color={iconColor} style={styles.notifIcon} />
+                      <View style={styles.notificationTextCol}>
+                        <Text style={styles.notificationItemTitle}>{notif.title}</Text>
+                        <Text style={styles.notificationItemDesc}>{notif.description}</Text>
+                      </View>
+                    </View>
+                  );
+                })
+              )}
             </ScrollView>
           </View>
         </Pressable>
@@ -281,21 +368,21 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   notificationCard: {
-    width: screenWidth - spacing.xl * 2,
-    maxHeight: '60%',
+    width: screenWidth - spacing.lg * 2,
+    maxHeight: '65%',
     backgroundColor: colors.backgroundElevated,
     borderRadius: radius.xl,
-    borderWidth: 1,
-    borderColor: colors.border,
-    padding: spacing.md,
+    borderWidth: 1.5,
+    borderColor: 'rgba(255, 255, 255, 0.14)',
+    padding: spacing.lg,
   },
   notificationHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     borderBottomWidth: 1,
-    borderBottomColor: colors.border,
-    paddingBottom: spacing.sm,
+    borderBottomColor: 'rgba(255, 255, 255, 0.08)',
+    paddingBottom: spacing.md,
     marginBottom: spacing.md,
   },
   notificationTitle: {
@@ -307,18 +394,21 @@ const styles = StyleSheet.create({
   },
   notificationItem: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: spacing.sm,
+    alignItems: 'center',
+    gap: spacing.md,
     backgroundColor: colors.surface,
     borderWidth: 1,
-    borderColor: colors.borderSubtle,
+    borderColor: 'rgba(255, 255, 255, 0.07)',
     borderRadius: radius.md,
-    padding: spacing.sm,
-    marginBottom: spacing.sm,
+    padding: spacing.md,
+    marginBottom: spacing.md,
+  },
+  notifIcon: {
+    alignSelf: 'center',
   },
   notificationTextCol: {
     flex: 1,
-    gap: 2,
+    gap: 4,
   },
   notificationItemTitle: {
     ...typography.titleSmall,
@@ -329,6 +419,18 @@ const styles = StyleSheet.create({
     ...typography.bodySmall,
     color: colors.textSecondary,
     fontSize: 11,
+    lineHeight: 15,
+  },
+  emptyNotifications: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: spacing.xl,
+    gap: spacing.xs,
+  },
+  emptyText: {
+    ...typography.bodyMedium,
+    color: colors.textMuted,
+    fontSize: 12,
   },
   macroBarsContainer: {
     width: '100%',

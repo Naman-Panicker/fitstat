@@ -1,5 +1,7 @@
 import React, { useState, useCallback, useMemo } from 'react';
-import { View, Text, StyleSheet, Pressable, ScrollView, ActivityIndicator, Modal } from 'react-native';
+import { View, Text, StyleSheet, Pressable, ScrollView, ActivityIndicator, Modal, Animated, Dimensions } from 'react-native';
+
+const screenWidth = Dimensions.get('window').width;
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter, useFocusEffect } from 'expo-router';
@@ -31,6 +33,65 @@ export default function WorkoutsScreen() {
 
   // Touch gesture state
   const touchStartX = React.useRef(0);
+
+  // Animated FAB state & variables
+  const animValue = React.useRef(new Animated.Value(0)).current;
+  const [isScrolled, setIsScrolled] = useState(false);
+
+  const animatedLeft = animValue.interpolate({
+    inputRange: [0, 1],
+    outputRange: [16, screenWidth - 24 - 56],
+  });
+
+  const animatedRight = animValue.interpolate({
+    inputRange: [0, 1],
+    outputRange: [16, 24],
+  });
+
+  const animatedBottom = animValue.interpolate({
+    inputRange: [0, 1],
+    outputRange: [16, 24],
+  });
+
+  const animatedHeight = animValue.interpolate({
+    inputRange: [0, 1],
+    outputRange: [48, 56],
+  });
+
+  const animatedRadius = animValue.interpolate({
+    inputRange: [0, 1],
+    outputRange: [24, 28],
+  });
+
+  const animatedBg = animValue.interpolate({
+    inputRange: [0, 1],
+    outputRange: [colors.surface, colors.primary],
+  });
+
+  const textOpacity = animValue.interpolate({
+    inputRange: [0, 0.4, 1],
+    outputRange: [1, 0, 0],
+  });
+
+  const textWidth = animValue.interpolate({
+    inputRange: [0, 1],
+    outputRange: [140, 0],
+  });
+
+  const animatedPaddingLeft = animValue.interpolate({
+    inputRange: [0, 1],
+    outputRange: [16, 0],
+  });
+
+  const animatedPaddingRight = animValue.interpolate({
+    inputRange: [0, 1],
+    outputRange: [16, 0],
+  });
+
+  const textMarginLeft = animValue.interpolate({
+    inputRange: [0, 1],
+    outputRange: [8, 0],
+  });
 
   // Helper: Format Date to YYYY-MM-DD
   const dateToSqlStr = (d: Date): string => {
@@ -245,8 +306,31 @@ export default function WorkoutsScreen() {
         ) : (
           <ScrollView
             style={styles.bodyScroll}
-            contentContainerStyle={styles.bodyContent}
+            contentContainerStyle={[styles.bodyContent, { paddingBottom: 100 }]}
             showsVerticalScrollIndicator={false}
+            onScroll={(e) => {
+              const offsetY = e.nativeEvent.contentOffset.y;
+              if (offsetY > 40) {
+                if (!isScrolled) {
+                  setIsScrolled(true);
+                  Animated.timing(animValue, {
+                    toValue: 1,
+                    duration: 200,
+                    useNativeDriver: false,
+                  }).start();
+                }
+              } else {
+                if (isScrolled) {
+                  setIsScrolled(false);
+                  Animated.timing(animValue, {
+                    toValue: 0,
+                    duration: 200,
+                    useNativeDriver: false,
+                  }).start();
+                }
+              }
+            }}
+            scrollEventThrottle={16}
           >
             {groupedWorkouts.length === 0 ? (
               <View style={styles.emptyContainer}>
@@ -311,10 +395,22 @@ export default function WorkoutsScreen() {
           </ScrollView>
         )}
 
-        {/* Bottom Action Controls */}
-        <View style={styles.bottomActions}>
+        {/* Collapsing Animated Floating Action Button */}
+        <Animated.View
+          style={[
+            styles.animatedButtonContainer,
+            {
+              left: animatedLeft,
+              right: animatedRight,
+              bottom: animatedBottom,
+              height: animatedHeight,
+              borderRadius: animatedRadius,
+              backgroundColor: animatedBg,
+            },
+          ]}
+        >
           <Pressable
-            style={({ pressed }) => [styles.actionBlock, pressed && { opacity: 0.75 }]}
+            style={{ flex: 1 }}
             onPress={() =>
               router.push({
                 pathname: '/workout/select-muscle',
@@ -322,10 +418,40 @@ export default function WorkoutsScreen() {
               })
             }
           >
-            <Ionicons name="add" size={32} color={colors.primary} />
-            <Text style={styles.actionText}>Start New Workout</Text>
+            <Animated.View
+              style={[
+                styles.animatedButtonPressable,
+                {
+                  paddingLeft: animatedPaddingLeft,
+                  paddingRight: animatedPaddingRight,
+                },
+              ]}
+            >
+              <View style={styles.iconStack}>
+                <Animated.View style={{ opacity: animValue.interpolate({ inputRange: [0, 1], outputRange: [1, 0] }) }}>
+                  <Ionicons name="add" size={24} color={colors.primary} />
+                </Animated.View>
+                <Animated.View style={[StyleSheet.absoluteFill, { opacity: animValue.interpolate({ inputRange: [0, 1], outputRange: [0, 1] }), alignItems: 'center', justifyContent: 'center' }]}>
+                  <Ionicons name="add" size={24} color={colors.background} />
+                </Animated.View>
+              </View>
+
+              <Animated.Text
+                style={[
+                  styles.actionText,
+                  {
+                    opacity: textOpacity,
+                    width: textWidth,
+                    marginLeft: textMarginLeft,
+                  },
+                ]}
+                numberOfLines={1}
+              >
+                Start New Workout
+              </Animated.Text>
+            </Animated.View>
           </Pressable>
-        </View>
+        </Animated.View>
       </View>
 
       {/* Settings Modal Sheet */}
@@ -461,21 +587,33 @@ const styles = StyleSheet.create({
     color: colors.textMuted,
     textAlign: 'center',
   },
-  bottomActions: {
-    paddingBottom: spacing.xl,
-    alignItems: 'center',
-    backgroundColor: colors.background,
+  animatedButtonContainer: {
+    position: 'absolute',
+    borderWidth: 1,
+    borderColor: colors.border,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 6,
+    elevation: 8,
+    overflow: 'hidden',
   },
-  actionBlock: {
+  animatedButtonPressable: {
+    flex: 1,
+    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: spacing.xs,
-    paddingVertical: spacing.xs,
+  },
+  iconStack: {
+    width: 24,
+    height: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   actionText: {
     ...typography.titleSmall,
     color: colors.text,
-    marginTop: 2,
+    textAlign: 'center',
   },
 
   // Workout Cards

@@ -2,7 +2,7 @@ import { type SQLiteDatabase } from 'expo-sqlite';
 import { mockFoodLibrary, mockDayLog } from '../data/mockData';
 import { DEV_USER_ID } from '../types';
 
-const DATABASE_VERSION = 8;
+const DATABASE_VERSION = 9;
 
 export async function migrateDbIfNeeded(db: SQLiteDatabase) {
   // ── Always-on pragmas (must run every connection, not just migrations) ─────
@@ -551,6 +551,33 @@ export async function migrateDbIfNeeded(db: SQLiteDatabase) {
       console.error('Failed to run v8 users migration:', e);
     }
     currentDbVersion = 8;
+  }
+
+  // Migrate v8 -> v9: Add notifications table and dynamic preferences
+  if (currentDbVersion === 8) {
+    try {
+      await db.execAsync(`
+        CREATE TABLE IF NOT EXISTS notifications (
+          id          TEXT PRIMARY KEY NOT NULL,
+          user_id     TEXT NOT NULL,
+          type        TEXT NOT NULL,
+          title       TEXT NOT NULL,
+          description TEXT NOT NULL,
+          read        INTEGER NOT NULL DEFAULT 0,
+          created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+          FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+        );
+
+        -- Seed default dynamic notification preferences into user_preferences
+        INSERT OR IGNORE INTO user_preferences (key, value) VALUES ('pref_notification_streak', '1');
+        INSERT OR IGNORE INTO user_preferences (key, value) VALUES ('pref_notification_sync', '1');
+        INSERT OR IGNORE INTO user_preferences (key, value) VALUES ('pref_notification_workout', '1');
+        INSERT OR IGNORE INTO user_preferences (key, value) VALUES ('pref_notification_meal', '1');
+      `);
+    } catch (e) {
+      console.error('Failed to run v9 notifications migration:', e);
+    }
+    currentDbVersion = 9;
   }
 
   await db.execAsync(`PRAGMA user_version = ${DATABASE_VERSION}`);

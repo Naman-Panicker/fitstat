@@ -839,6 +839,296 @@ export async function updateUserProfile(
   );
 }
 
+/**
+ * Calculates the active daily logging streak for a user.
+ * A streak counts consecutive days of logging meals or workouts.
+ * If today has no log, but yesterday had a log, the streak is alive (counting through yesterday).
+ * If yesterday had no log, the streak resets to 0.
+ * A streak officially activates (glows) only when streakCount >= 2 consecutive days.
+ */
+export async function calculateActiveLoggingStreak(
+  db: SQLiteDatabase,
+  userId: string
+): Promise<{ streakCount: number; isActive: boolean }> {
+  try {
+    const rows = await db.getAllAsync<{ logged_at: string }>(
+      `SELECT logged_at FROM meal_logs WHERE user_id = ?
+       UNION
+       SELECT logged_at FROM workout_logs WHERE user_id = ?
+       ORDER BY logged_at DESC`,
+      userId,
+      userId
+    );
 
+    if (rows.length === 0) {
+      return { streakCount: 0, isActive: false };
+    }
 
+    const loggedDates = rows.map((r) => r.logged_at);
 
+    // Format date in local YYYY-MM-DD
+    const formatDate = (date: Date): string => {
+      const year = date.getFullYear();
+      const month = String(date.getMonth() + 1).padStart(2, '0');
+      const day = String(date.getDate()).padStart(2, '0');
+      return `${year}-${month}-${day}`;
+    };
+
+    const todayStr = formatDate(new Date());
+
+    const yesterday = new Date();
+    yesterday.setDate(yesterday.getDate() - 1);
+    const yesterdayStr = formatDate(yesterday);
+
+    const hasLoggedToday = loggedDates.includes(todayStr);
+    const hasLoggedYesterday = loggedDates.includes(yesterdayStr);
+
+    if (!hasLoggedToday && !hasLoggedYesterday) {
+      return { streakCount: 0, isActive: false };
+    }
+
+    let currentCheckDate = hasLoggedToday ? new Date() : yesterday;
+    let streakCount = 0;
+
+    while (true) {
+      const checkStr = formatDate(currentCheckDate);
+      if (loggedDates.includes(checkStr)) {
+        streakCount++;
+        currentCheckDate.setDate(currentCheckDate.getDate() - 1);
+      } else {
+        break;
+      }
+    }
+
+    // According to consecutive day criteria: "streak activates from: two consecutive days"
+    const isActive = streakCount >= 2;
+
+    return { streakCount, isActive };
+  } catch (e) {
+    console.error('Failed to calculate active logging streak:', e);
+    return { streakCount: 0, isActive: false };
+  }
+}
+
+export interface SystemNotification {
+  id: string;
+  userId: string;
+  type: string; // 'streak' | 'sync' | 'workout' | 'meal'
+  title: string;
+  description: string;
+  read: number; // 0 or 1
+  createdAt: string;
+}
+
+/**
+ * Fetches all unread active system notifications for a user.
+ */
+export async function fetchUserNotifications(
+  db: SQLiteDatabase,
+  userId: string
+): Promise<SystemNotification[]> {
+  try {
+    const rows = await db.getAllAsync<{
+      id: string;
+      user_id: string;
+      type: string;
+      title: string;
+      description: string;
+      read: number;
+      created_at: string;
+    }>(
+      'SELECT id, user_id, type, title, description, read, created_at FROM notifications WHERE user_id = ? AND read = 0 ORDER BY created_at DESC',
+      userId
+    );
+    return rows.map((r) => ({
+      id: r.id,
+      userId: r.user_id,
+      type: r.type,
+      title: r.title,
+      description: r.description,
+      read: r.read,
+      createdAt: r.created_at,
+    }));
+  } catch (e) {
+    console.error('Failed to fetch user notifications:', e);
+    return [];
+  }
+}
+
+/**
+ * Marks all notifications for a user as read.
+ */
+export async function clearAllNotifications(
+  db: SQLiteDatabase,
+  userId: string
+): Promise<void> {
+  try {
+    await db.runAsync(
+      'UPDATE notifications SET read = 1 WHERE user_id = ?',
+      userId
+    );
+  } catch (e) {
+    console.error('Failed to clear notifications:', e);
+  }
+}
+
+/**
+ * Saves a notification preference toggle in SQLite.
+ */
+export async function saveNotificationPreference(
+  db: SQLiteDatabase,
+  key: string,
+  value: string
+): Promise<void> {
+  try {
+    await db.runAsync(
+      'INSERT OR REPLACE INTO user_preferences (key, value) VALUES (?, ?)',
+      key,
+      value
+    );
+  } catch (e) {
+    console.error('Failed to save notification preference:', e);
+  }
+}
+
+/**
+ * Fetches all active notification preference toggles from user_preferences.
+ */
+export async function getNotificationPreferences(
+  db: SQLiteDatabase
+): Promise<Record<string, string>> {
+  try {
+    const rows = await db.getAllAsync<{ key: string; value: string }>(
+      "SELECT key, value FROM user_preferences WHERE key LIKE 'pref_notification_%'"
+    );
+    const prefs: Record<string, string> = {};
+    rows.forEach((r) => {
+      prefs[r.key] = r.value;
+    });
+    return prefs;
+  } catch (e) {
+    console.error('Failed to get notification preferences:', e);
+    return {};
+  }
+}
+
+/**
+ * Dynamic system notification engine.
+ * Inspects daily logs, streak states, and cloud synchronicity to generate context-aware warnings.
+ */
+export async function syncSystemNotifications(
+  db: SQLiteDatabase,
+  userId: string,
+  isSynced: boolean
+): Promise<void> {
+  try {
+    const prefs = await getNotificationPreferences(db);
+    const showStreak = prefs['pref_notification_streak'] !== '0';
+    const showSync = prefs['pref_notification_sync'] !== '0';
+    const showWorkout = prefs['pref_notification_workout'] !== '0';
+    const showMeal = prefs['pref_notification_meal'] !== '0';
+
+    const todayStr = new Date().toISOString().slice(0, 10);
+
+    // 1. Clear unread dynamic system alerts before recalculating
+    await db.runAsync(
+      "DELETE FROM notifications WHERE user_id = ? AND read = 0 AND type IN ('streak', 'sync', 'workout', 'meal')",
+      userId
+    );
+
+    // 2. Dynamic Streak Warning
+    if (showStreak) {
+      const streakResult = await calculateActiveLoggingStreak(db, userId);
+      const todayLogs = await db.getAllAsync<{ logged_at: string }>(
+        `SELECT logged_at FROM meal_logs WHERE user_id = ? AND logged_at = ?
+         UNION
+         SELECT logged_at FROM workout_logs WHERE user_id = ? AND logged_at = ?`,
+        userId,
+        todayStr,
+        userId,
+        todayStr
+      );
+
+      const hasLoggedToday = todayLogs.length > 0;
+
+      if (!hasLoggedToday) {
+        if (streakResult.isActive) {
+          await db.runAsync(
+            `INSERT OR IGNORE INTO notifications (id, user_id, type, title, description, read)
+             VALUES (?, ?, ?, ?, ?, 0)`,
+            `streak-at-risk-${todayStr}`,
+            userId,
+            'streak',
+            'Streak at Risk! 🔥',
+            `Your active streak of ${streakResult.streakCount} days is at risk! Log a meal or workout today to keep it burning.`
+          );
+        } else if (streakResult.streakCount === 1) {
+          await db.runAsync(
+            `INSERT OR IGNORE INTO notifications (id, user_id, type, title, description, read)
+             VALUES (?, ?, ?, ?, ?, 0)`,
+            `streak-start-${todayStr}`,
+            userId,
+            'streak',
+            'Start Your Streak! ⚡',
+            'You logged yesterday! Log a meal or workout today to officially activate your 2-day consecutive streak.'
+          );
+        }
+      }
+    }
+
+    // 3. Dynamic Sync Alert
+    if (showSync && !isSynced) {
+      await db.runAsync(
+        `INSERT OR IGNORE INTO notifications (id, user_id, type, title, description, read)
+         VALUES (?, ?, ?, ?, ?, 0)`,
+        'sync-offline-warning',
+        userId,
+        'sync',
+        'Cloud Sync Recommended 🛡️',
+        'Your logs are currently offline. Enable Cloud Sync in settings to backup your data securely across all devices.'
+      );
+    }
+
+    // 4. Dynamic Workout Reminder
+    if (showWorkout) {
+      const todayWorkouts = await db.getAllAsync<{ id: string }>(
+        'SELECT id FROM workout_logs WHERE user_id = ? AND logged_at = ?',
+        userId,
+        todayStr
+      );
+      if (todayWorkouts.length === 0) {
+        await db.runAsync(
+          `INSERT OR IGNORE INTO notifications (id, user_id, type, title, description, read)
+           VALUES (?, ?, ?, ?, ?, 0)`,
+          `workout-reminder-${todayStr}`,
+          userId,
+          'workout',
+          "Log Today's Workout 🏋️‍♂️",
+          'Ready to hit your physical goals? Record your latest exercises to stay perfectly on track!'
+        );
+      }
+    }
+
+    // 5. Dynamic Meal Reminder
+    if (showMeal) {
+      const todayMeals = await db.getAllAsync<{ id: string }>(
+        'SELECT id FROM meal_logs WHERE user_id = ? AND logged_at = ?',
+        userId,
+        todayStr
+      );
+      if (todayMeals.length === 0) {
+        await db.runAsync(
+          `INSERT OR IGNORE INTO notifications (id, user_id, type, title, description, read)
+           VALUES (?, ?, ?, ?, ?, 0)`,
+          `meal-reminder-${todayStr}`,
+          userId,
+          'meal',
+          "Log Today's Meals 🥗",
+          'Fuel your fitness journey! Keep your nutrition diary updated by recording your latest meals.'
+        );
+      }
+    }
+  } catch (e) {
+    console.error('Failed to sync system notifications:', e);
+  }
+}

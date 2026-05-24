@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -11,13 +11,14 @@ import {
   ActivityIndicator,
   Modal,
   Alert,
+  Keyboard,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useSQLiteContext } from 'expo-sqlite';
 import { useAuth } from '@/src/context/AuthContext';
-import { getUserProfile, updateUserProfile, UserProfile } from '@/src/db/queries';
+import { getUserProfile, updateUserProfile, UserProfile, getNotificationPreferences, saveNotificationPreference } from '@/src/db/queries';
 import { colors, radius, spacing, typography, globalStyles } from '@/src/styles/globals';
 import { supabase } from '@/src/lib/supabase';
 
@@ -25,6 +26,38 @@ export default function ProfileScreen() {
   const router = useRouter();
   const db = useSQLiteContext();
   const { userId, session } = useAuth();
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
+  const scrollViewRef = useRef<ScrollView>(null);
+
+  const handleFocus = (field: 'displayName' | 'username') => {
+    setTimeout(() => {
+      if (field === 'displayName') {
+        scrollViewRef.current?.scrollTo({ y: 220, animated: true });
+      } else if (field === 'username') {
+        scrollViewRef.current?.scrollTo({ y: 310, animated: true });
+      }
+    }, 120);
+  };
+
+  useEffect(() => {
+    const showSubscription = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow',
+      (e) => {
+        setKeyboardHeight(e.endCoordinates.height);
+      }
+    );
+    const hideSubscription = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide',
+      () => {
+        setKeyboardHeight(0);
+      }
+    );
+
+    return () => {
+      showSubscription.remove();
+      hideSubscription.remove();
+    };
+  }, []);
 
   // Profile data state
   const [profile, setProfile] = useState<UserProfile | null>(null);
@@ -41,12 +74,15 @@ export default function ProfileScreen() {
   const [isAuthLoading, setIsAuthLoading] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
 
-  // Mock settings state
-  const [notificationsEnabled, setNotificationsEnabled] = useState(true);
+  // Notification states
+  const [prefStreak, setPrefStreak] = useState(true);
+  const [prefSync, setPrefSync] = useState(true);
+  const [prefWorkout, setPrefWorkout] = useState(true);
+  const [prefMeal, setPrefMeal] = useState(true);
 
-  // Load user profile
+  // Load user profile & preferences
   useEffect(() => {
-    async function loadProfile() {
+    async function loadData() {
       setIsLoadingProfile(true);
       try {
         const data = await getUserProfile(db, userId);
@@ -55,14 +91,30 @@ export default function ProfileScreen() {
           setDisplayName(data.name);
           setUsername(data.username);
         }
+
+        const prefs = await getNotificationPreferences(db);
+        setPrefStreak(prefs['pref_notification_streak'] !== '0');
+        setPrefSync(prefs['pref_notification_sync'] !== '0');
+        setPrefWorkout(prefs['pref_notification_workout'] !== '0');
+        setPrefMeal(prefs['pref_notification_meal'] !== '0');
       } catch (e) {
-        console.error('Failed to load user profile:', e);
+        console.error('Failed to load user data:', e);
       } finally {
         setIsLoadingProfile(false);
       }
     }
-    loadProfile();
+    loadData();
   }, [db, userId]);
+
+  const handleTogglePref = async (key: string, currentValue: boolean, setter: (val: boolean) => void) => {
+    const newValue = !currentValue;
+    setter(newValue);
+    try {
+      await saveNotificationPreference(db, key, newValue ? '1' : '0');
+    } catch (e) {
+      console.error(`Failed to save preference ${key}:`, e);
+    }
+  };
 
   // Handle saving personal details
   const handleSaveProfile = async () => {
@@ -171,134 +223,207 @@ export default function ProfileScreen() {
           <ActivityIndicator size="large" color={colors.primary} />
         </View>
       ) : (
-        <ScrollView
-          style={styles.scroll}
-          contentContainerStyle={styles.scrollContent}
-          showsVerticalScrollIndicator={false}
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          style={{ flex: 1 }}
+          keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
         >
-          {/* User Info Card */}
-          <View style={styles.userInfoCard}>
-            <View style={styles.avatarCircle}>
-              <Ionicons name="person" size={36} color={colors.background} />
-            </View>
-            <View style={styles.userInfoText}>
-              <Text style={styles.profileName}>{profile?.name || 'Dev Tester'}</Text>
-              <Text style={styles.profileUsername}>{profile?.username || '@dev_tester'}</Text>
-            </View>
-          </View>
-
-          {/* Cloud Sync Section */}
-          <Text style={styles.sectionTitle}>Cloud Backup & Sync</Text>
-          <View style={styles.card}>
-            <View style={styles.cardHeader}>
-              <View style={styles.cardHeaderLeft}>
-                <Ionicons
-                  name={session ? 'cloud-done' : 'cloud-offline-outline'}
-                  size={20}
-                  color={session ? colors.success : colors.textSecondary}
-                />
-                <Text style={styles.cardTitle}>Cloud Database Sync</Text>
+          <ScrollView
+            ref={scrollViewRef}
+            style={styles.scroll}
+            contentContainerStyle={[
+              styles.scrollContent,
+              { flexGrow: 1, paddingBottom: keyboardHeight > 0 ? keyboardHeight + 80 : 80 }
+            ]}
+            showsVerticalScrollIndicator={false}
+            automaticallyAdjustKeyboardInsets={Platform.OS === 'ios' ? false : true}
+            keyboardShouldPersistTaps="handled"
+            keyboardDismissMode="on-drag"
+          >
+            {/* User Info Card */}
+            <View style={styles.userInfoCard}>
+              <View style={styles.avatarCircle}>
+                <Ionicons name="person" size={36} color={colors.background} />
               </View>
-              <View style={[styles.statusBadge, session ? styles.statusBadgeSynced : styles.statusBadgeOffline]}>
-                <Text style={[styles.statusBadgeText, session ? styles.statusTextSynced : styles.statusTextOffline]}>
-                  {session ? 'Synced' : 'Offline-Only'}
-                </Text>
+              <View style={styles.userInfoText}>
+                <Text style={styles.profileName}>{profile?.name || 'Dev Tester'}</Text>
+                <Text style={styles.profileUsername}>{profile?.username || '@dev_tester'}</Text>
               </View>
             </View>
 
-            <Text style={styles.cardDescription}>
-              {session
-                ? `Fully backed up to the cloud. Synced with ${session.user.email}.`
-                : 'Your logs are currently stored offline on this device. Connect cloud sync to enable multiple devices backup.'}
-            </Text>
+            {/* Cloud Sync Section */}
+            <Text style={styles.sectionTitle}>Cloud Backup & Sync</Text>
+            <View style={styles.card}>
+              <View style={styles.cardHeader}>
+                <View style={styles.cardHeaderLeft}>
+                  <Ionicons
+                    name={session ? 'cloud-done' : 'cloud-offline-outline'}
+                    size={20}
+                    color={session ? colors.success : colors.textSecondary}
+                  />
+                  <Text style={styles.cardTitle}>Cloud Database Sync</Text>
+                </View>
+                <View style={[styles.statusBadge, session ? styles.statusBadgeSynced : styles.statusBadgeOffline]}>
+                  <Text style={[styles.statusBadgeText, session ? styles.statusTextSynced : styles.statusTextOffline]}>
+                    {session ? 'Synced' : 'Offline-Only'}
+                  </Text>
+                </View>
+              </View>
 
-            {session ? (
-              <Pressable
-                style={({ pressed }) => [styles.btnDanger, pressed && { opacity: 0.8 }]}
-                onPress={handleSignOut}
-              >
-                <Ionicons name="log-out-outline" size={18} color={colors.alert} />
-                <Text style={styles.btnDangerText}>Disconnect Cloud Sync</Text>
-              </Pressable>
-            ) : (
-              <Pressable
-                style={({ pressed }) => [styles.btnPrimary, pressed && { opacity: 0.8 }]}
-                onPress={() => {
-                  setAuthError(null);
-                  setAuthModalVisible(true);
-                }}
-              >
-                <Ionicons name="cloud-upload-outline" size={18} color={colors.background} />
-                <Text style={styles.btnPrimaryText}>Enable Cloud Sync</Text>
-              </Pressable>
-            )}
-          </View>
+              <Text style={styles.cardDescription}>
+                {session
+                  ? `Fully backed up to the cloud. Synced with ${session.user.email}.`
+                  : 'Your logs are currently stored offline on this device. Connect cloud sync to enable multiple devices backup.'}
+              </Text>
 
-          {/* Profile Details Edit Card */}
-          <Text style={styles.sectionTitle}>Personal Details</Text>
-          <View style={styles.card}>
-            <Text style={styles.inputLabel}>DISPLAY NAME</Text>
-            <TextInput
-              style={styles.textInput}
-              value={displayName}
-              onChangeText={setDisplayName}
-              placeholder="Your display name"
-              placeholderTextColor={colors.textMuted}
-            />
-
-            <Text style={styles.inputLabel}>USERNAME</Text>
-            <TextInput
-              style={styles.textInput}
-              value={username}
-              onChangeText={setUsername}
-              placeholder="e.g. @username"
-              placeholderTextColor={colors.textMuted}
-              autoCapitalize="none"
-              autoCorrect={false}
-            />
-
-            <Pressable
-              style={({ pressed }) => [
-                styles.btnSave,
-                pressed && { opacity: 0.8 },
-                isSaving && { opacity: 0.6 },
-              ]}
-              onPress={handleSaveProfile}
-              disabled={isSaving}
-            >
-              {isSaving ? (
-                <ActivityIndicator size="small" color={colors.background} />
+              {session ? (
+                <Pressable
+                  style={({ pressed }) => [styles.btnDanger, pressed && { opacity: 0.8 }]}
+                  onPress={handleSignOut}
+                >
+                  <Ionicons name="log-out-outline" size={18} color={colors.alert} />
+                  <Text style={styles.btnDangerText}>Disconnect Cloud Sync</Text>
+                </Pressable>
               ) : (
-                <>
-                  <Ionicons name="checkmark-circle-outline" size={18} color={colors.background} />
-                  <Text style={styles.btnSaveText}>Save Profile Changes</Text>
-                </>
+                <Pressable
+                  style={({ pressed }) => [styles.btnPrimary, pressed && { opacity: 0.8 }]}
+                  onPress={() => {
+                    setAuthError(null);
+                    setAuthModalVisible(true);
+                  }}
+                >
+                  <Ionicons name="cloud-upload-outline" size={18} color={colors.background} />
+                  <Text style={styles.btnPrimaryText}>Enable Cloud Sync</Text>
+                </Pressable>
               )}
-            </Pressable>
-          </View>
+            </View>
 
-          {/* Mock Settings */}
-          <Text style={styles.sectionTitle}>App Preferences</Text>
-          <View style={styles.card}>
-            <View style={styles.preferenceRow}>
-              <View style={styles.preferenceLeft}>
-                <Ionicons name="notifications-outline" size={20} color={colors.textSecondary} />
-                <Text style={styles.preferenceLabel}>System Notifications</Text>
-              </View>
+            {/* Profile Details Edit Card */}
+            <Text style={styles.sectionTitle}>Personal Details</Text>
+            <View style={styles.card}>
+              <Text style={styles.inputLabel}>DISPLAY NAME</Text>
+              <TextInput
+                style={styles.textInput}
+                value={displayName}
+                onChangeText={setDisplayName}
+                placeholder="Your display name"
+                placeholderTextColor={colors.textMuted}
+                onFocus={() => handleFocus('displayName')}
+              />
+
+              <Text style={styles.inputLabel}>USERNAME</Text>
+              <TextInput
+                style={styles.textInput}
+                value={username}
+                onChangeText={setUsername}
+                placeholder="e.g. @username"
+                placeholderTextColor={colors.textMuted}
+                autoCapitalize="none"
+                autoCorrect={false}
+                onFocus={() => handleFocus('username')}
+              />
+
               <Pressable
-                onPress={() => setNotificationsEnabled(!notificationsEnabled)}
-                style={styles.toggleTrack}
+                style={({ pressed }) => [
+                  styles.btnSave,
+                  pressed && { opacity: 0.8 },
+                  isSaving && { opacity: 0.6 },
+                ]}
+                onPress={handleSaveProfile}
+                disabled={isSaving}
               >
-                <View
-                  style={[
-                    styles.toggleThumb,
-                    notificationsEnabled ? styles.toggleThumbActive : styles.toggleThumbInactive,
-                  ]}
-                />
+                {isSaving ? (
+                  <ActivityIndicator size="small" color={colors.background} />
+                ) : (
+                  <>
+                    <Ionicons name="checkmark-circle-outline" size={18} color={colors.background} />
+                    <Text style={styles.btnSaveText}>Save Profile Changes</Text>
+                  </>
+                )}
               </Pressable>
             </View>
-          </View>
-        </ScrollView>
+
+            {/* Notification Preferences */}
+            <Text style={styles.sectionTitle}>Notification Settings</Text>
+            <View style={styles.card}>
+              {/* Streak reset warning */}
+              <View style={styles.preferenceRow}>
+                <View style={styles.preferenceLeft}>
+                  <Ionicons name="flame-outline" size={19} color={colors.textSecondary} />
+                  <Text style={styles.preferenceLabel}>Streak Reset Warnings</Text>
+                </View>
+                <Pressable
+                  onPress={() => handleTogglePref('pref_notification_streak', prefStreak, setPrefStreak)}
+                  style={[styles.toggleTrack, prefStreak && styles.toggleTrackActive]}
+                >
+                  <View
+                    style={[
+                      styles.toggleThumb,
+                      prefStreak ? styles.toggleThumbActive : styles.toggleThumbInactive,
+                    ]}
+                  />
+                </Pressable>
+              </View>
+
+              {/* Cloud backup alert */}
+              <View style={[styles.preferenceRow, { marginTop: spacing.md }]}>
+                <View style={styles.preferenceLeft}>
+                  <Ionicons name="cloud-offline-outline" size={19} color={colors.textSecondary} />
+                  <Text style={styles.preferenceLabel}>Cloud Sync Status Alerts</Text>
+                </View>
+                <Pressable
+                  onPress={() => handleTogglePref('pref_notification_sync', prefSync, setPrefSync)}
+                  style={[styles.toggleTrack, prefSync && styles.toggleTrackActive]}
+                >
+                  <View
+                    style={[
+                      styles.toggleThumb,
+                      prefSync ? styles.toggleThumbActive : styles.toggleThumbInactive,
+                    ]}
+                  />
+                </Pressable>
+              </View>
+
+              {/* Workout reminders */}
+              <View style={[styles.preferenceRow, { marginTop: spacing.md }]}>
+                <View style={styles.preferenceLeft}>
+                  <Ionicons name="barbell-outline" size={19} color={colors.textSecondary} />
+                  <Text style={styles.preferenceLabel}>Workout Logging Reminders</Text>
+                </View>
+                <Pressable
+                  onPress={() => handleTogglePref('pref_notification_workout', prefWorkout, setPrefWorkout)}
+                  style={[styles.toggleTrack, prefWorkout && styles.toggleTrackActive]}
+                >
+                  <View
+                    style={[
+                      styles.toggleThumb,
+                      prefWorkout ? styles.toggleThumbActive : styles.toggleThumbInactive,
+                    ]}
+                  />
+                </Pressable>
+              </View>
+
+              {/* Meal diary alerts */}
+              <View style={[styles.preferenceRow, { marginTop: spacing.md }]}>
+                <View style={styles.preferenceLeft}>
+                  <Ionicons name="restaurant-outline" size={19} color={colors.textSecondary} />
+                  <Text style={styles.preferenceLabel}>Nutrition Diary Alerts</Text>
+                </View>
+                <Pressable
+                  onPress={() => handleTogglePref('pref_notification_meal', prefMeal, setPrefMeal)}
+                  style={[styles.toggleTrack, prefMeal && styles.toggleTrackActive]}
+                >
+                  <View
+                    style={[
+                      styles.toggleThumb,
+                      prefMeal ? styles.toggleThumbActive : styles.toggleThumbInactive,
+                    ]}
+                  />
+                </Pressable>
+              </View>
+            </View>
+          </ScrollView>
+        </KeyboardAvoidingView>
       )}
 
       {/* Auth Bottom Sheet / Modal */}
@@ -309,8 +434,9 @@ export default function ProfileScreen() {
         onRequestClose={() => setAuthModalVisible(false)}
       >
         <KeyboardAvoidingView
-          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
           style={styles.modalOverlay}
+          keyboardVerticalOffset={Platform.OS === 'ios' ? 80 : 0}
         >
           <Pressable style={styles.modalDismissArea} onPress={() => setAuthModalVisible(false)} />
           <View style={styles.modalCard}>
@@ -610,6 +736,9 @@ const styles = StyleSheet.create({
     backgroundColor: colors.border,
     padding: 2,
     justifyContent: 'center',
+  },
+  toggleTrackActive: {
+    backgroundColor: 'rgba(74, 222, 128, 0.25)',
   },
   toggleThumb: {
     width: 20,
