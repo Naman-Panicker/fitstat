@@ -2,7 +2,7 @@ import { type SQLiteDatabase } from 'expo-sqlite';
 import { mockFoodLibrary, mockDayLog } from '../data/mockData';
 import { DEV_USER_ID } from '../types';
 
-const DATABASE_VERSION = 7;
+const DATABASE_VERSION = 8;
 
 export async function migrateDbIfNeeded(db: SQLiteDatabase) {
   // ── Always-on pragmas (must run every connection, not just migrations) ─────
@@ -529,6 +529,28 @@ export async function migrateDbIfNeeded(db: SQLiteDatabase) {
     }
 
     currentDbVersion = 7;
+  }
+
+  // Migrate v7 -> v8: Add username column to users table if not exists
+  if (currentDbVersion === 7) {
+    try {
+      // Check if username column exists
+      const tableInfo = await db.getAllAsync<{ name: string }>(
+        "PRAGMA table_info(users)"
+      );
+      const hasUsername = tableInfo.some((col) => col.name === 'username');
+      if (!hasUsername) {
+        await db.execAsync(`
+          ALTER TABLE users ADD COLUMN username TEXT;
+        `);
+        await db.runAsync(`
+          UPDATE users SET username = '@dev_tester' WHERE username IS NULL;
+        `);
+      }
+    } catch (e) {
+      console.error('Failed to run v8 users migration:', e);
+    }
+    currentDbVersion = 8;
   }
 
   await db.execAsync(`PRAGMA user_version = ${DATABASE_VERSION}`);

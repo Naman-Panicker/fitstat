@@ -782,5 +782,63 @@ export async function getLoggedSetsForExerciseOnDate(
   }));
 }
 
+export type UserProfile = {
+  id: string;
+  username: string;
+  name: string;
+  email: string | null;
+  avatarUrl: string | null;
+};
+
+/**
+ * Retrieves a user's profile details.
+ */
+export async function getUserProfile(
+  db: SQLiteDatabase,
+  userId: string
+): Promise<UserProfile | null> {
+  try {
+    const row = await db.getFirstAsync<{
+      id: string;
+      username: string;
+      name: string;
+      email: string | null;
+      avatar_url: string | null;
+    }>(
+      'SELECT id, username, name, email, avatar_url FROM users WHERE id = ?',
+      userId
+    );
+    if (!row) return null;
+    return {
+      id: row.id,
+      username: row.username,
+      name: row.name,
+      email: row.email,
+      avatarUrl: row.avatar_url,
+    };
+  } catch (e) {
+    console.error('Failed to get user profile:', e);
+    return null;
+  }
+}
+
+/**
+ * Updates a user's profile username and name.
+ */
+export async function updateUserProfile(
+  db: SQLiteDatabase,
+  userId: string,
+  username: string,
+  name: string
+): Promise<void> {
+  await db.runAsync(
+    'UPDATE users SET username = ?, name = ? WHERE id = ?',
+    username,
+    name,
+    userId
+  );
+}
+
+
 
 

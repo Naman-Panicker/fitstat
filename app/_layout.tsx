@@ -45,6 +45,13 @@ export default function RootLayout() {
                 presentation: 'card',
               }}
             />
+            <Stack.Screen
+              name="profile"
+              options={{
+                headerShown: false,
+                presentation: 'card',
+              }}
+            />
           </Stack>
         </MealsProvider>
       </AuthProvider>

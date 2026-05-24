@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   ScrollView,
   View,
@@ -6,6 +6,9 @@ import {
   StyleSheet,
   Pressable,
   Image,
+  Alert,
+  Modal,
+  Dimensions,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -17,6 +20,8 @@ import { colors, globalStyles, radius, spacing, typography } from '@/src/styles/
 import { useMeals } from '@/src/context/MealsContext';
 import { DAILY_GOALS } from '@/src/data/mockData';
 import { MealType } from '@/src/types';
+
+const screenWidth = Dimensions.get('window').width;
 
 const MEAL_ORDER: MealType[] = ['breakfast', 'lunch', 'dinner', 'snacks'];
 const MEAL_LABELS: Record<MealType, string> = {
@@ -31,6 +36,9 @@ export default function HomeScreen() {
   const { getMealCalories, getTotals } = useMeals();
   const totals = getTotals();
 
+  // Notification modal visibility state
+  const [notificationsModalVisible, setNotificationsModalVisible] = useState(false);
+
   const handleAddMeal = (mealType?: MealType) => {
     router.push({ pathname: '/add-meal', params: mealType ? { mealType } : {} });
   };
@@ -42,6 +50,35 @@ export default function HomeScreen() {
         <Pressable style={({ pressed }) => [styles.headerTitleRow, pressed && { opacity: 0.7 }]}>
           <Text style={styles.headerTitle}>Home</Text>
         </Pressable>
+
+        {/* Top Right Header Actions */}
+        <View style={styles.headerActions}>
+          {/* Streak Action */}
+          <Pressable
+            style={({ pressed }) => [styles.streakContainer, pressed && { opacity: 0.7 }]}
+            onPress={() => Alert.alert('Active Streak', 'You have logged data for 3 consecutive days! Keep it up!')}
+          >
+            <Ionicons name="flame" size={20} color="#fb923c" />
+            <Text style={styles.streakText}>3</Text>
+          </Pressable>
+
+          {/* Notifications Action */}
+          <Pressable
+            style={({ pressed }) => [styles.iconBtn, pressed && { opacity: 0.7 }]}
+            onPress={() => setNotificationsModalVisible(true)}
+          >
+            <Ionicons name="notifications-outline" size={21} color={colors.text} />
+            <View style={styles.dotBadge} />
+          </Pressable>
+
+          {/* Profile Action */}
+          <Pressable
+            style={({ pressed }) => [styles.iconBtn, pressed && { opacity: 0.7 }]}
+            onPress={() => router.push('/profile')}
+          >
+            <Ionicons name="person-circle-outline" size={24} color={colors.text} />
+          </Pressable>
+        </View>
       </View>
 
       <ScrollView
@@ -116,6 +153,51 @@ export default function HomeScreen() {
           );
         })}
       </ScrollView>
+
+      {/* Centered Notifications Alert Overlay */}
+      <Modal
+        animationType="fade"
+        transparent={true}
+        visible={notificationsModalVisible}
+        onRequestClose={() => setNotificationsModalVisible(false)}
+      >
+        <Pressable style={styles.modalOverlay} onPress={() => setNotificationsModalVisible(false)}>
+          <View style={styles.notificationCard}>
+            <View style={styles.notificationHeader}>
+              <Text style={styles.notificationTitle}>System Alerts</Text>
+              <Pressable onPress={() => setNotificationsModalVisible(false)}>
+                <Ionicons name="close" size={20} color={colors.textSecondary} />
+              </Pressable>
+            </View>
+
+            <ScrollView showsVerticalScrollIndicator={false} style={styles.notificationList}>
+              <View style={styles.notificationItem}>
+                <Ionicons name="flame" size={18} color="#fb923c" />
+                <View style={styles.notificationTextCol}>
+                  <Text style={styles.notificationItemTitle}>Streak Alert!</Text>
+                  <Text style={styles.notificationItemDesc}>Maintain your streak by logging meals today.</Text>
+                </View>
+              </View>
+
+              <View style={styles.notificationItem}>
+                <Ionicons name="cloud-done" size={18} color={colors.success} />
+                <View style={styles.notificationTextCol}>
+                  <Text style={styles.notificationItemTitle}>Cloud Engine Active</Text>
+                  <Text style={styles.notificationItemDesc}>Cloud migration pipeline initialized & persistent.</Text>
+                </View>
+              </View>
+
+              <View style={styles.notificationItem}>
+                <Ionicons name="shield-checkmark" size={18} color={colors.proteinColor} />
+                <View style={styles.notificationTextCol}>
+                  <Text style={styles.notificationItemTitle}>Offline-First Mode</Text>
+                  <Text style={styles.notificationItemDesc}>Data saved securely in local SQLite storage.</Text>
+                </View>
+              </View>
+            </ScrollView>
+          </View>
+        </Pressable>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -135,10 +217,46 @@ const styles = StyleSheet.create({
   topBar: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
     backgroundColor: colors.background,
     paddingHorizontal: spacing.md,
     paddingTop: spacing.md,
     paddingBottom: spacing.xs,
+  },
+  headerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+  },
+  streakContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 4,
+    gap: 4,
+  },
+  streakText: {
+    ...typography.labelSmall,
+    color: '#fb923c',
+    fontFamily: 'Jura-Bold',
+    fontSize: 12,
+  },
+  iconBtn: {
+    position: 'relative',
+    padding: 2,
+  },
+  dotBadge: {
+    position: 'absolute',
+    top: 1,
+    right: 1,
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: colors.alert,
   },
   headerTitleRow: {
     flexDirection: 'row',
@@ -153,6 +271,64 @@ const styles = StyleSheet.create({
   },
   chevronIcon: {
     marginTop: 4,
+  },
+  
+  // Notification Modal Styles
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.65)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  notificationCard: {
+    width: screenWidth - spacing.xl * 2,
+    maxHeight: '60%',
+    backgroundColor: colors.backgroundElevated,
+    borderRadius: radius.xl,
+    borderWidth: 1,
+    borderColor: colors.border,
+    padding: spacing.md,
+  },
+  notificationHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+    paddingBottom: spacing.sm,
+    marginBottom: spacing.md,
+  },
+  notificationTitle: {
+    ...typography.titleMedium,
+    color: colors.text,
+  },
+  notificationList: {
+    gap: spacing.md,
+  },
+  notificationItem: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: spacing.sm,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.borderSubtle,
+    borderRadius: radius.md,
+    padding: spacing.sm,
+    marginBottom: spacing.sm,
+  },
+  notificationTextCol: {
+    flex: 1,
+    gap: 2,
+  },
+  notificationItemTitle: {
+    ...typography.titleSmall,
+    color: colors.text,
+    fontSize: 13,
+  },
+  notificationItemDesc: {
+    ...typography.bodySmall,
+    color: colors.textSecondary,
+    fontSize: 11,
   },
   macroBarsContainer: {
     width: '100%',
