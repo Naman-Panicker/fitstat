@@ -167,7 +167,7 @@ export default function MealsHistoryPage() {
     if (!state.hasMore && state.days.length > 0) {
       return (
         <View style={styles.footer}>
-          <Text style={styles.endText}>That's all your history</Text>
+          <Text style={styles.endText}>{"That's all your history"}</Text>
         </View>
       );
     }

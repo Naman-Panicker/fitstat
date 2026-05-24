@@ -5,7 +5,6 @@ import {
   Text,
   StyleSheet,
   Pressable,
-  Image,
   Alert,
   Modal,
   Dimensions,
@@ -15,7 +14,6 @@ import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import HomeHeader from '@/components/HomeHeader';
 import CalorieRing from '@/components/ui/CalorieRing';
-import MacroBar from '@/components/ui/MacroBar';
 import { colors, globalStyles, radius, spacing, typography } from '@/src/styles/globals';
 import { useMeals } from '@/src/context/MealsContext';
 import { DAILY_GOALS } from '@/src/data/mockData';
@@ -52,10 +50,14 @@ export default function HomeScreen() {
   // Notifications state
   const [notifications, setNotifications] = useState<SystemNotification[]>([]);
 
+  // Dynamic Calorie Goal state
+  const [calorieGoal, setCalorieGoal] = useState(2000);
+
   // Fetch streak and notifications whenever screen gains focus
   useEffect(() => {
     if (isFocused) {
       async function loadData() {
+        if (!userId) return;
         const data = await calculateActiveLoggingStreak(db, userId);
         setStreakData(data);
 
@@ -63,6 +65,19 @@ export default function HomeScreen() {
         await syncSystemNotifications(db, userId, session !== null);
         const list = await fetchUserNotifications(db, userId);
         setNotifications(list);
+
+        // Fetch dynamic calorie goal preference
+        try {
+          const prefRows = await db.getAllAsync<{ key: string; value: string }>(
+            "SELECT key, value FROM user_preferences WHERE user_id = ? AND key = 'calorie_goal'",
+            userId
+          );
+          if (prefRows.length > 0) {
+            setCalorieGoal(parseInt(prefRows[0].value) || 2000);
+          }
+        } catch (e) {
+          console.error('Failed to load calorie goal:', e);
+        }
       }
       loadData();
     }
@@ -157,46 +172,34 @@ export default function HomeScreen() {
         <View style={styles.ringCard}>
           <CalorieRing
             value={totals.calories}
-            goal={DAILY_GOALS.calories}
+            goal={calorieGoal}
             size={200}
             strokeWidth={18}
           />
 
-          {/* Macro Progress Bars */}
-          <View style={styles.macroBarsContainer}>
-            <MacroBar
-              label="Protein"
-              value={totals.protein}
-              goal={DAILY_GOALS.protein}
-              color={colors.proteinColor}
-              noMargin
-            />
-            <MacroBar
-              label="Carbs"
-              value={totals.carbs}
-              goal={DAILY_GOALS.carbs}
-              color={colors.carbColor}
-              noMargin
-            />
-            <MacroBar
-              label="Fat"
-              value={totals.fat}
-              goal={DAILY_GOALS.fat}
-              color={colors.fatColor}
-              noMargin
-            />
-            <MacroBar
-              label="Fiber"
-              value={totals.fiber}
-              goal={DAILY_GOALS.fiber}
-              color={colors.fiberColor}
-              noMargin
-            />
+          {/* Macro Bento Grid */}
+          <View style={styles.macroGrid}>
+            <View style={styles.macroGridCard}>
+              <Text style={styles.gridCardLabel}>Protein</Text>
+              <Text style={[styles.gridCardValue, { color: colors.proteinColor }]}>{Math.round(totals.protein)} g</Text>
+            </View>
+            <View style={styles.macroGridCard}>
+              <Text style={styles.gridCardLabel}>Carbs</Text>
+              <Text style={[styles.gridCardValue, { color: colors.carbColor }]}>{Math.round(totals.carbs)} g</Text>
+            </View>
+            <View style={styles.macroGridCard}>
+              <Text style={styles.gridCardLabel}>Fat</Text>
+              <Text style={[styles.gridCardValue, { color: colors.fatColor }]}>{Math.round(totals.fat)} g</Text>
+            </View>
+            <View style={styles.macroGridCard}>
+              <Text style={styles.gridCardLabel}>Fiber</Text>
+              <Text style={[styles.gridCardValue, { color: colors.fiberColor }]}>{Math.round(totals.fiber)} g</Text>
+            </View>
           </View>
         </View>
 
         {/* Today's Meals Summary */}
-        <Text style={globalStyles.sectionTitle}>Today's Meals</Text>
+        <Text style={globalStyles.sectionTitle}>{"Today's Meals"}</Text>
 
         {MEAL_ORDER.map((mealType) => {
           const cal = getMealCalories(mealType);
@@ -432,9 +435,37 @@ const styles = StyleSheet.create({
     color: colors.textMuted,
     fontSize: 12,
   },
-  macroBarsContainer: {
+  macroGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
     width: '100%',
-    gap: spacing.xs,
+    marginTop: spacing.md + 4,
+    gap: spacing.sm,
+  },
+  macroGridCard: {
+    width: '47.5%',
+    backgroundColor: 'rgba(255, 255, 255, 0.02)',
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.06)',
+    paddingVertical: spacing.sm + 2,
+    paddingHorizontal: spacing.md,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  gridCardLabel: {
+    ...typography.labelSmall,
+    color: colors.textSecondary,
+    fontSize: 9,
+    letterSpacing: 0.6,
+    textTransform: 'uppercase',
+  },
+  gridCardValue: {
+    ...typography.titleLarge,
+    fontFamily: 'Jura-Bold',
+    fontSize: 16,
+    marginTop: 2,
   },
   mealRow: {
     flexDirection: 'row',

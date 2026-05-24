@@ -77,9 +77,9 @@ function reducer(state: State, action: Action): State {
 // ─── Context ──────────────────────────────────────────────────────────────────
 
 type ContextValue = State & {
-  addFoodToLibrary: (food: FoodItem) => void;
-  logMeal: (log: MealLog) => void;
-  deleteLogEntry: (id: string) => void;
+  addFoodToLibrary: (food: FoodItem) => Promise<void>;
+  logMeal: (log: MealLog) => Promise<void>;
+  deleteLogEntry: (id: string) => Promise<void>;
   getLogsForMeal: (mealType: MealType) => MealLog[];
   getMealCalories: (mealType: MealType) => number;
   getTotals: () => { calories: number; protein: number; carbs: number; fat: number; fiber: number };
@@ -98,6 +98,7 @@ export function MealsProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     let isMounted = true;
     async function hydrate() {
+      if (!userId) return;
       try {
         const date = todayDateString();
         // Fetch sequentially to prevent concurrent sqlite connection clashes
@@ -120,32 +121,36 @@ export function MealsProvider({ children }: { children: ReactNode }) {
     };
   }, [db, userId]);
 
-  const addFoodToLibrary = (food: FoodItem) => {
+  const addFoodToLibrary = async (food: FoodItem) => {
     const exists = state.foodLibrary.some(
       (f) => f.name.toLowerCase() === food.name.toLowerCase()
     );
     if (exists) return;
 
-    // Write to SQLite, then update in-memory state
-    insertFoodItem(db, food, userId).catch((e) =>
-      console.error('Failed to insert food item:', e)
-    );
-    dispatch({ type: 'ADD_FOOD_TO_LIBRARY', payload: food });
+    try {
+      await insertFoodItem(db, food, userId);
+      dispatch({ type: 'ADD_FOOD_TO_LIBRARY', payload: food });
+    } catch (e) {
+      console.error('Failed to insert food item:', e);
+    }
   };
 
-  const logMeal = (log: MealLog) => {
-    insertMealLog(db, log, userId, state.selectedDate).catch((e) =>
-      console.error('Failed to insert meal log:', e)
-    );
-    dispatch({ type: 'LOG_MEAL', payload: log });
+  const logMeal = async (log: MealLog) => {
+    try {
+      await insertMealLog(db, log, userId, state.selectedDate);
+      dispatch({ type: 'LOG_MEAL', payload: log });
+    } catch (e) {
+      console.error('Failed to insert meal log:', e);
+    }
   };
 
-
-  const deleteLogEntry = (id: string) => {
-    deleteMealLog(db, id).catch((e) =>
-      console.error('Failed to delete meal log:', e)
-    );
-    dispatch({ type: 'DELETE_LOG_ENTRY', payload: { id } });
+  const deleteLogEntry = async (id: string) => {
+    try {
+      await deleteMealLog(db, id);
+      dispatch({ type: 'DELETE_LOG_ENTRY', payload: { id } });
+    } catch (e) {
+      console.error('Failed to delete meal log:', e);
+    }
   };
 
   const getLogsForMeal = (mealType: MealType) =>

@@ -1,8 +1,15 @@
 import { type SQLiteDatabase } from 'expo-sqlite';
-import { mockFoodLibrary, mockDayLog } from '../data/mockData';
-import { DEV_USER_ID } from '../types';
+import { STANDARD_FOOD_LIBRARY } from '../data/mockData';
 
-const DATABASE_VERSION = 9;
+const DATABASE_VERSION = 11;
+
+/**
+ * Generates a local UUID-like identifier for offline users.
+ */
+function generateLocalUserId(): string {
+  const seg = () => Math.random().toString(36).slice(2, 8);
+  return `local-${seg()}-${seg()}-${Date.now().toString(36)}`;
+}
 
 export async function migrateDbIfNeeded(db: SQLiteDatabase) {
   // ── Always-on pragmas (must run every connection, not just migrations) ─────
@@ -18,12 +25,12 @@ export async function migrateDbIfNeeded(db: SQLiteDatabase) {
 
   if (currentDbVersion >= DATABASE_VERSION) return;
 
-  // ── v0 → v1: initial schema + seed data ───────────────────────────────────
+  // ── v0 → v1: Full production schema + reference data (fresh installs) ─────
   if (currentDbVersion === 0) {
     await db.execAsync(`
       CREATE TABLE IF NOT EXISTS users (
         id         TEXT PRIMARY KEY NOT NULL,
-        username   TEXT UNIQUE NOT NULL,
+        username   TEXT UNIQUE,
         name       TEXT NOT NULL,
         email      TEXT,
         number     TEXT,
@@ -65,170 +72,7 @@ export async function migrateDbIfNeeded(db: SQLiteDatabase) {
 
       CREATE INDEX IF NOT EXISTS idx_meal_logs_user_date
         ON meal_logs (user_id, logged_at);
-    `);
 
-    // ── Seed dev user ────────────────────────────────────────────────────────
-    await db.runAsync(
-      'INSERT OR IGNORE INTO users (id, name, email) VALUES (?, ?, ?)',
-      DEV_USER_ID,
-      'Dev Tester',
-      'dev@fitstat.local'
-    );
-
-    // ── Seed food library ────────────────────────────────────────────────────
-    for (const food of mockFoodLibrary) {
-      await db.runAsync(
-        'INSERT OR IGNORE INTO food_items (id, user_id, name, calories, protein, carbs, fat, fiber) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-        food.id,
-        DEV_USER_ID,
-        food.name,
-        food.calories,
-        food.protein,
-        food.carbs,
-        food.fat,
-        food.fiber
-      );
-    }
-
-    // ── Seed day log ─────────────────────────────────────────────────────────
-    for (const log of mockDayLog) {
-      await db.runAsync(
-        'INSERT OR IGNORE INTO meal_logs (id, user_id, food_id, meal_type, servings) VALUES (?, ?, ?, ?, ?)',
-        log.id,
-        DEV_USER_ID,
-        log.food.id,
-        log.mealType,
-        log.servings
-      );
-    }
-
-    currentDbVersion = 2;
-  }
-
-  // ── v1 → v2: add synced_at, one_user index, nullable user_id, logged_at CHECK
-  if (currentDbVersion === 1) {
-    // -- users: add synced_at + one_user index
-    await db.execAsync(`
-      ALTER TABLE users ADD COLUMN synced_at TEXT;
-      CREATE UNIQUE INDEX IF NOT EXISTS one_user ON users((1));
-    `);
-
-    // -- food_items: add synced_at, then recreate to make user_id nullable
-    await db.execAsync(`
-      ALTER TABLE food_items ADD COLUMN synced_at TEXT;
-
-      CREATE TABLE food_items_new (
-        id        TEXT PRIMARY KEY NOT NULL,
-        user_id   TEXT,
-        name      TEXT NOT NULL,
-        calories  REAL NOT NULL DEFAULT 0,
-        protein   REAL NOT NULL DEFAULT 0,
-        carbs     REAL NOT NULL DEFAULT 0,
-        fat       REAL NOT NULL DEFAULT 0,
-        fiber     REAL NOT NULL DEFAULT 0,
-        synced_at TEXT,
-        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-      );
-
-      INSERT INTO food_items_new SELECT id, user_id, name, calories, protein, carbs, fat, fiber, synced_at FROM food_items;
-      DROP TABLE food_items;
-      ALTER TABLE food_items_new RENAME TO food_items;
-
-      CREATE UNIQUE INDEX IF NOT EXISTS idx_food_items_user_name
-        ON food_items (user_id, name COLLATE NOCASE);
-    `);
-
-    // -- meal_logs: add synced_at, then recreate to add CHECK constraint on logged_at
-    await db.execAsync(`
-      ALTER TABLE meal_logs ADD COLUMN synced_at TEXT;
-
-      CREATE TABLE meal_logs_new (
-        id        TEXT PRIMARY KEY NOT NULL,
-        user_id   TEXT NOT NULL,
-        food_id   TEXT NOT NULL,
-        meal_type TEXT NOT NULL CHECK (meal_type IN ('breakfast','lunch','dinner','snacks')),
-        servings  REAL NOT NULL DEFAULT 1,
-        logged_at TEXT NOT NULL DEFAULT (date('now'))
-                  CHECK (logged_at GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]'),
-        synced_at TEXT,
-        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-        FOREIGN KEY (food_id) REFERENCES food_items(id) ON DELETE CASCADE
-      );
-
-      INSERT INTO meal_logs_new SELECT id, user_id, food_id, meal_type, servings, logged_at, synced_at FROM meal_logs;
-      DROP TABLE meal_logs;
-      ALTER TABLE meal_logs_new RENAME TO meal_logs;
-
-      CREATE INDEX IF NOT EXISTS idx_meal_logs_user_date
-        ON meal_logs (user_id, logged_at);
-    `);
-
-    currentDbVersion = 2;
-  }
-
-  // ── v2 → v3: seed historical meal logs for testing ──────────────────────────
-  if (currentDbVersion === 2) {
-    // Helper: YYYY-MM-DD for N days ago
-    const daysAgo = (n: number): string => {
-      const d = new Date();
-      d.setDate(d.getDate() - n);
-      const yyyy = d.getFullYear();
-      const mm = String(d.getMonth() + 1).padStart(2, '0');
-      const dd = String(d.getDate()).padStart(2, '0');
-      return `${yyyy}-${mm}-${dd}`;
-    };
-
-    // Breakfast/lunch/dinner/snack food combos using existing seed food IDs
-    const mealPlans: { meal_type: string; food_ids: string[] }[][] = [
-      // Pattern A
-      [
-        { meal_type: 'breakfast', food_ids: ['f1', 'f2'] },
-        { meal_type: 'lunch',     food_ids: ['f5', 'f6', 'f7'] },
-        { meal_type: 'dinner',    food_ids: ['f8', 'f9'] },
-        { meal_type: 'snacks',    food_ids: ['f10'] },
-      ],
-      // Pattern B
-      [
-        { meal_type: 'breakfast', food_ids: ['f3', 'f4', 'f2'] },
-        { meal_type: 'lunch',     food_ids: ['f5', 'f15'] },
-        { meal_type: 'dinner',    food_ids: ['f8', 'f7', 'f9'] },
-        { meal_type: 'snacks',    food_ids: ['f11', 'f12'] },
-      ],
-      // Pattern C
-      [
-        { meal_type: 'breakfast', food_ids: ['f1', 'f13', 'f12'] },
-        { meal_type: 'lunch',     food_ids: ['f5', 'f6'] },
-        { meal_type: 'dinner',    food_ids: ['f15', 'f7'] },
-        { meal_type: 'snacks',    food_ids: ['f14', 'f11'] },
-      ],
-    ];
-
-    // Seed 10 past days (1..10 days ago)
-    for (let day = 1; day <= 10; day++) {
-      const date = daysAgo(day);
-      const plan = mealPlans[day % mealPlans.length];
-      for (const slot of plan) {
-        for (let fi = 0; fi < slot.food_ids.length; fi++) {
-          const logId = `hist-d${day}-${slot.meal_type}-${fi}`;
-          await db.runAsync(
-            'INSERT OR IGNORE INTO meal_logs (id, user_id, food_id, meal_type, servings, logged_at) VALUES (?, ?, ?, ?, ?, ?)',
-            logId,
-            DEV_USER_ID,
-            slot.food_ids[fi],
-            slot.meal_type,
-            1,
-            date
-          );
-        }
-      }
-    }
-
-    currentDbVersion = 3;
-  }
-
-  // ── v3 → v4: Add Workouts schema & seed standard exercises ──────────────────
-  if (currentDbVersion === 3) {
-    await db.execAsync(`
       CREATE TABLE IF NOT EXISTS exercises (
         id           TEXT PRIMARY KEY NOT NULL,
         user_id      TEXT,
@@ -267,49 +111,82 @@ export async function migrateDbIfNeeded(db: SQLiteDatabase) {
 
       CREATE INDEX IF NOT EXISTS idx_exercise_sets_workout_log
         ON exercise_sets (workout_log_id);
+
+      CREATE TABLE IF NOT EXISTS user_preferences (
+        user_id TEXT NOT NULL,
+        key     TEXT NOT NULL,
+        value   TEXT NOT NULL,
+        PRIMARY KEY (user_id, key)
+      );
+
+      CREATE TABLE IF NOT EXISTS notifications (
+        id          TEXT PRIMARY KEY NOT NULL,
+        user_id     TEXT NOT NULL,
+        type        TEXT NOT NULL,
+        title       TEXT NOT NULL,
+        description TEXT NOT NULL,
+        read        INTEGER NOT NULL DEFAULT 0,
+        created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+      );
+
+      CREATE TABLE IF NOT EXISTS weight_logs (
+        id         TEXT PRIMARY KEY NOT NULL,
+        user_id    TEXT NOT NULL,
+        weight     REAL NOT NULL,
+        logged_at  TEXT NOT NULL,
+        synced_at  TEXT,
+        UNIQUE(user_id, logged_at),
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+      );
     `);
 
-    // Standard preloaded exercises to seed
-    const defaultExercises: { id: string; name: string; muscle: string }[] = [
-      // Abs
+    // ── Seed standard food library (global, user_id = NULL) ─────────────────
+    for (const food of STANDARD_FOOD_LIBRARY) {
+      await db.runAsync(
+        'INSERT OR IGNORE INTO food_items (id, user_id, name, calories, protein, carbs, fat, fiber) VALUES (?, NULL, ?, ?, ?, ?, ?, ?)',
+        food.id,
+        food.name,
+        food.calories,
+        food.protein,
+        food.carbs,
+        food.fat,
+        food.fiber
+      );
+    }
+
+    // ── Seed standard exercises (global, user_id = NULL) ────────────────────
+    const standardExercises: { id: string; name: string; muscle: string }[] = [
       { id: 'e1', name: 'Crunch', muscle: 'abs' },
       { id: 'e2', name: 'Plank', muscle: 'abs' },
       { id: 'e3', name: 'Hanging Leg Raise', muscle: 'abs' },
-      // Back
       { id: 'e4', name: 'Barbell Row', muscle: 'back' },
       { id: 'e5', name: 'Pull-up', muscle: 'back' },
       { id: 'e6', name: 'Lat Pulldown', muscle: 'back' },
-      // Biceps
       { id: 'e7', name: 'Barbell Curl', muscle: 'biceps' },
       { id: 'e8', name: 'Hammer Curl', muscle: 'biceps' },
       { id: 'e9', name: 'Incline Dumbbell Curl', muscle: 'biceps' },
-      // Cardio
       { id: 'e10', name: 'Treadmill Run', muscle: 'cardio' },
       { id: 'e11', name: 'Stationary Bike', muscle: 'cardio' },
       { id: 'e12', name: 'Jump Rope', muscle: 'cardio' },
-      // Chest
       { id: 'e13', name: 'Flat Barbell Bench Press', muscle: 'chest' },
       { id: 'e14', name: 'Incline Dumbbell Press', muscle: 'chest' },
       { id: 'e15', name: 'Chest Fly', muscle: 'chest' },
-      // Forearms
       { id: 'e16', name: 'Wrist Curl', muscle: 'forearms' },
       { id: 'e17', name: 'Reverse Wrist Curl', muscle: 'forearms' },
-      // Legs
       { id: 'e18', name: 'Barbell Squat', muscle: 'legs' },
       { id: 'e19', name: 'Romanian Deadlift', muscle: 'legs' },
       { id: 'e20', name: 'Leg Press', muscle: 'legs' },
       { id: 'e21', name: 'Calf Raise', muscle: 'legs' },
-      // Shoulders
       { id: 'e22', name: 'Overhead Barbell Press', muscle: 'shoulders' },
       { id: 'e23', name: 'Lateral Dumbbell Raise', muscle: 'shoulders' },
       { id: 'e24', name: 'Rear Delt Fly', muscle: 'shoulders' },
-      // Triceps
       { id: 'e25', name: 'Skull Crusher', muscle: 'triceps' },
       { id: 'e26', name: 'Cable Pushdown', muscle: 'triceps' },
       { id: 'e27', name: 'Overhead Dumbbell Extension', muscle: 'triceps' },
     ];
 
-    for (const ex of defaultExercises) {
+    for (const ex of standardExercises) {
       await db.runAsync(
         'INSERT OR IGNORE INTO exercises (id, user_id, name, muscle_group) VALUES (?, NULL, ?, ?)',
         ex.id,
@@ -318,244 +195,79 @@ export async function migrateDbIfNeeded(db: SQLiteDatabase) {
       );
     }
 
-    currentDbVersion = 4;
+    currentDbVersion = 1;
   }
 
-  // Migrate v4 -> v5: Add user preferences table
-  if (currentDbVersion === 4) {
-    await db.execAsync(`
-      CREATE TABLE IF NOT EXISTS user_preferences (
-        key   TEXT PRIMARY KEY NOT NULL,
-        value TEXT NOT NULL
-      );
-      INSERT OR IGNORE INTO user_preferences (key, value) VALUES ('workout_unit', 'metric');
-    `);
-    currentDbVersion = 5;
-  }
-
-  // Migrate v5 -> v6: Rich 30-day progressive workout logs and daily meal logs (robust, FK-safe version)
-  if (currentDbVersion === 5) {
-    const daysAgo = (n: number): string => {
-      const d = new Date();
-      d.setDate(d.getDate() - n);
-      const yyyy = d.getFullYear();
-      const mm = String(d.getMonth() + 1).padStart(2, '0');
-      const dd = String(d.getDate()).padStart(2, '0');
-      return `${yyyy}-${mm}-${dd}`;
-    };
-
-    // Seed 15 workout logs over the last 30 days (odd days) for 4 major exercises
-    const exerciseIds = ['e13', 'e14', 'e18', 'e7'];
-
-    for (let day = 1; day <= 30; day += 2) {
-      const dateStr = daysAgo(day);
-      const workoutLogId = `hist-workout-d${day}`;
-
-      // Check if a log already exists for this date to avoid FK violation from ignored insert
-      const existingLog = await db.getFirstAsync<{ id: string }>(
-        'SELECT id FROM workout_logs WHERE user_id = ? AND logged_at = ?',
-        DEV_USER_ID,
-        dateStr
-      );
-
-      let activeLogId = workoutLogId;
-      if (existingLog) {
-        activeLogId = existingLog.id;
-      } else {
-        await db.runAsync(
-          'INSERT OR IGNORE INTO workout_logs (id, user_id, logged_at) VALUES (?, ?, ?)',
-          workoutLogId,
-          DEV_USER_ID,
-          dateStr
-        );
-      }
-
-      // Progressive strength factor (increases towards today: day 30 to day 1)
-      const progressionFactor = (30 - day) / 30;
-
-      for (const exId of exerciseIds) {
-        let baseWeight = 40; 
-        if (exId === 'e18') baseWeight = 60; // Squats
-        if (exId === 'e7') baseWeight = 20;  // Barbell Curls
-
-        const currentWeight = Math.round(baseWeight + (progressionFactor * 25));
-
-        for (let setIdx = 1; setIdx <= 3; setIdx++) {
-          const setId = `hist-set-d${day}-${exId}-${setIdx}`;
-          const reps = 12 - setIdx;
-
-          await db.runAsync(
-            'INSERT OR IGNORE INTO exercise_sets (id, workout_log_id, exercise_id, weight, reps, created_at) VALUES (?, ?, ?, ?, ?, ?)',
-            setId,
-            activeLogId, // Reference the guaranteed existing log ID
-            exId,
-            currentWeight,
-            reps,
-            `${dateStr} 10:00:00`
-          );
-        }
-      }
-    }
-
-    // Seed daily meal logs for 30 consecutive days with realistic variance
-    const foodItemsList = ['f1', 'f3', 'f5', 'f7', 'f8', 'f10', 'f13', 'f15'];
-
-    for (let day = 1; day <= 30; day++) {
-      const dateStr = daysAgo(day);
-
-      const breakfastFood = foodItemsList[day % foodItemsList.length];
-      const lunchFood = foodItemsList[(day + 1) % foodItemsList.length];
-      const dinnerFood = foodItemsList[(day + 2) % foodItemsList.length];
-      const snackFood = foodItemsList[(day + 3) % foodItemsList.length];
-
-      const meals = [
-        { type: 'breakfast', food: breakfastFood, servings: 1 },
-        { type: 'lunch', food: lunchFood, servings: 1.2 },
-        { type: 'dinner', food: dinnerFood, servings: 1.1 },
-        { type: 'snacks', food: snackFood, servings: 0.8 },
-      ];
-
-      for (let mIdx = 0; mIdx < meals.length; mIdx++) {
-        const meal = meals[mIdx];
-        const logId = `hist-meal-d${day}-${meal.type}`;
-        await db.runAsync(
-          'INSERT OR IGNORE INTO meal_logs (id, user_id, food_id, meal_type, servings, logged_at) VALUES (?, ?, ?, ?, ?, ?)',
-          logId,
-          DEV_USER_ID,
-          meal.food,
-          meal.type,
-          meal.servings,
-          dateStr
-        );
-      }
-    }
-
-    currentDbVersion = 6;
-  }
-
-  // Migrate v6 -> v7: Make sure the seeded progressive data is fully populated and safe
-  if (currentDbVersion === 6) {
-    const daysAgo = (n: number): string => {
-      const d = new Date();
-      d.setDate(d.getDate() - n);
-      const yyyy = d.getFullYear();
-      const mm = String(d.getMonth() + 1).padStart(2, '0');
-      const dd = String(d.getDate()).padStart(2, '0');
-      return `${yyyy}-${mm}-${dd}`;
-    };
-
-    const exerciseIds = ['e13', 'e14', 'e18', 'e7'];
-
-    for (let day = 1; day <= 30; day += 2) {
-      const dateStr = daysAgo(day);
-      const workoutLogId = `hist-workout-v7-d${day}`;
-
-      // Check if a log already exists for this date to avoid FK violation from ignored insert
-      const existingLog = await db.getFirstAsync<{ id: string }>(
-        'SELECT id FROM workout_logs WHERE user_id = ? AND logged_at = ?',
-        DEV_USER_ID,
-        dateStr
-      );
-
-      let activeLogId = workoutLogId;
-      if (existingLog) {
-        activeLogId = existingLog.id;
-      } else {
-        await db.runAsync(
-          'INSERT OR IGNORE INTO workout_logs (id, user_id, logged_at) VALUES (?, ?, ?)',
-          workoutLogId,
-          DEV_USER_ID,
-          dateStr
-        );
-      }
-
-      const progressionFactor = (30 - day) / 30;
-
-      for (const exId of exerciseIds) {
-        let baseWeight = 40;
-        if (exId === 'e18') baseWeight = 60;
-        if (exId === 'e7') baseWeight = 20;
-
-        const currentWeight = Math.round(baseWeight + (progressionFactor * 25));
-
-        for (let setIdx = 1; setIdx <= 3; setIdx++) {
-          const setId = `hist-set-v7-d${day}-${exId}-${setIdx}`;
-          const reps = 12 - setIdx;
-
-          await db.runAsync(
-            'INSERT OR IGNORE INTO exercise_sets (id, workout_log_id, exercise_id, weight, reps, created_at) VALUES (?, ?, ?, ?, ?, ?)',
-            setId,
-            activeLogId, // Reference the guaranteed existing log ID
-            exId,
-            currentWeight,
-            reps,
-            `${dateStr} 10:00:00`
-          );
-        }
-      }
-    }
-
-    // Seed daily meal logs for 30 consecutive days with realistic variance
-    const foodItemsList = ['f1', 'f3', 'f5', 'f7', 'f8', 'f10', 'f13', 'f15'];
-
-    for (let day = 1; day <= 30; day++) {
-      const dateStr = daysAgo(day);
-
-      const breakfastFood = foodItemsList[day % foodItemsList.length];
-      const lunchFood = foodItemsList[(day + 1) % foodItemsList.length];
-      const dinnerFood = foodItemsList[(day + 2) % foodItemsList.length];
-      const snackFood = foodItemsList[(day + 3) % foodItemsList.length];
-
-      const meals = [
-        { type: 'breakfast', food: breakfastFood, servings: 1 },
-        { type: 'lunch', food: lunchFood, servings: 1.2 },
-        { type: 'dinner', food: dinnerFood, servings: 1.1 },
-        { type: 'snacks', food: snackFood, servings: 0.8 },
-      ];
-
-      for (let mIdx = 0; mIdx < meals.length; mIdx++) {
-        const meal = meals[mIdx];
-        const logId = `hist-meal-v7-d${day}-${meal.type}`;
-        await db.runAsync(
-          'INSERT OR IGNORE INTO meal_logs (id, user_id, food_id, meal_type, servings, logged_at) VALUES (?, ?, ?, ?, ?, ?)',
-          logId,
-          DEV_USER_ID,
-          meal.food,
-          meal.type,
-          meal.servings,
-          dateStr
-        );
-      }
-    }
-
-    currentDbVersion = 7;
-  }
-
-  // Migrate v7 -> v8: Add username column to users table if not exists
-  if (currentDbVersion === 7) {
+  // ── v1–v10 → v11: Migration for old dev databases ────────────────────────
+  // Handles existing dev installs that were on the old incremental migration chain.
+  // Rebuilds user_preferences with user_id scoping, cleans up test data,
+  // and ensures weight_logs has proper UNIQUE(user_id, logged_at).
+  if (currentDbVersion >= 1 && currentDbVersion <= 10) {
     try {
-      // Check if username column exists
-      const tableInfo = await db.getAllAsync<{ name: string }>(
-        "PRAGMA table_info(users)"
+      // 1. Rebuild user_preferences with user_id scoping
+      const existingPrefs = await db.getAllAsync<{ key: string; value: string }>(
+        'SELECT key, value FROM user_preferences'
+      ).catch(() => [] as { key: string; value: string }[]);
+
+      await db.execAsync(`
+        DROP TABLE IF EXISTS user_preferences;
+        CREATE TABLE IF NOT EXISTS user_preferences (
+          user_id TEXT NOT NULL,
+          key     TEXT NOT NULL,
+          value   TEXT NOT NULL,
+          PRIMARY KEY (user_id, key)
+        );
+      `);
+
+      // Re-insert existing preferences scoped to the current user
+      const userRow = await db.getFirstAsync<{ id: string }>('SELECT id FROM users LIMIT 1');
+      const currentUserId = userRow?.id ?? '';
+      if (currentUserId && existingPrefs.length > 0) {
+        for (const pref of existingPrefs) {
+          await db.runAsync(
+            'INSERT OR IGNORE INTO user_preferences (user_id, key, value) VALUES (?, ?, ?)',
+            currentUserId,
+            pref.key,
+            pref.value
+          );
+        }
+      }
+
+      // 2. Rebuild weight_logs to have proper UNIQUE(user_id, logged_at) constraint
+      const hasWeightLogs = await db.getFirstAsync<{ name: string }>(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='weight_logs'"
       );
-      const hasUsername = tableInfo.some((col) => col.name === 'username');
-      if (!hasUsername) {
+
+      if (hasWeightLogs) {
         await db.execAsync(`
-          ALTER TABLE users ADD COLUMN username TEXT;
+          CREATE TABLE IF NOT EXISTS weight_logs_new (
+            id         TEXT PRIMARY KEY NOT NULL,
+            user_id    TEXT NOT NULL,
+            weight     REAL NOT NULL,
+            logged_at  TEXT NOT NULL,
+            synced_at  TEXT,
+            UNIQUE(user_id, logged_at),
+            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+          );
+          INSERT OR IGNORE INTO weight_logs_new SELECT id, user_id, weight, logged_at, synced_at FROM weight_logs;
+          DROP TABLE weight_logs;
+          ALTER TABLE weight_logs_new RENAME TO weight_logs;
         `);
-        await db.runAsync(`
-          UPDATE users SET username = '@dev_tester' WHERE username IS NULL;
+      } else {
+        await db.execAsync(`
+          CREATE TABLE IF NOT EXISTS weight_logs (
+            id         TEXT PRIMARY KEY NOT NULL,
+            user_id    TEXT NOT NULL,
+            weight     REAL NOT NULL,
+            logged_at  TEXT NOT NULL,
+            synced_at  TEXT,
+            UNIQUE(user_id, logged_at),
+            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+          );
         `);
       }
-    } catch (e) {
-      console.error('Failed to run v8 users migration:', e);
-    }
-    currentDbVersion = 8;
-  }
 
-  // Migrate v8 -> v9: Add notifications table and dynamic preferences
-  if (currentDbVersion === 8) {
-    try {
+      // 3. Ensure notifications table exists (for dev installs that missed v9)
       await db.execAsync(`
         CREATE TABLE IF NOT EXISTS notifications (
           id          TEXT PRIMARY KEY NOT NULL,
@@ -567,17 +279,44 @@ export async function migrateDbIfNeeded(db: SQLiteDatabase) {
           created_at  TEXT NOT NULL DEFAULT (datetime('now')),
           FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
         );
-
-        -- Seed default dynamic notification preferences into user_preferences
-        INSERT OR IGNORE INTO user_preferences (key, value) VALUES ('pref_notification_streak', '1');
-        INSERT OR IGNORE INTO user_preferences (key, value) VALUES ('pref_notification_sync', '1');
-        INSERT OR IGNORE INTO user_preferences (key, value) VALUES ('pref_notification_workout', '1');
-        INSERT OR IGNORE INTO user_preferences (key, value) VALUES ('pref_notification_meal', '1');
       `);
+
+      // 4. Ensure username column exists on users table
+      const tableInfo = await db.getAllAsync<{ name: string }>(
+        'PRAGMA table_info(users)'
+      );
+      const hasUsername = tableInfo.some((col) => col.name === 'username');
+      if (!hasUsername) {
+        await db.execAsync('ALTER TABLE users ADD COLUMN username TEXT;');
+      }
+
+      // 5. Clean up all test/dev meal logs and workout logs
+      await db.execAsync(`
+        DELETE FROM exercise_sets WHERE id LIKE 'hist-%';
+        DELETE FROM workout_logs WHERE id LIKE 'hist-%';
+        DELETE FROM meal_logs WHERE id LIKE 'hist-%';
+        DELETE FROM meal_logs WHERE id LIKE 'l%' AND user_id = 'dev-user-001';
+      `);
+
+      // 6. Ensure standard food items exist as global (user_id = NULL)
+      for (const food of STANDARD_FOOD_LIBRARY) {
+        await db.runAsync(
+          'INSERT OR IGNORE INTO food_items (id, user_id, name, calories, protein, carbs, fat, fiber) VALUES (?, NULL, ?, ?, ?, ?, ?, ?)',
+          food.id,
+          food.name,
+          food.calories,
+          food.protein,
+          food.carbs,
+          food.fat,
+          food.fiber
+        );
+      }
+
     } catch (e) {
-      console.error('Failed to run v9 notifications migration:', e);
+      console.error('Failed to run v10→v11 cleanup migration:', e);
     }
-    currentDbVersion = 9;
+
+    currentDbVersion = 11;
   }
 
   await db.execAsync(`PRAGMA user_version = ${DATABASE_VERSION}`);
@@ -585,22 +324,78 @@ export async function migrateDbIfNeeded(db: SQLiteDatabase) {
 
 /**
  * Retrieves the currently stored user ID in the local SQLite database.
- * Falls back to DEV_USER_ID if the users table is somehow empty.
+ * If no user exists (fresh install), creates one with a generated local UUID.
  */
 export async function getLocalUserId(db: SQLiteDatabase): Promise<string> {
   try {
+    // Purge any residual developer user data from previous testing runs
+    await db.execAsync(`
+      PRAGMA foreign_keys = OFF;
+      DELETE FROM users WHERE id = 'dev-user-001';
+      DELETE FROM meal_logs WHERE user_id = 'dev-user-001';
+      DELETE FROM workout_logs WHERE user_id = 'dev-user-001';
+      DELETE FROM weight_logs WHERE user_id = 'dev-user-001';
+      DELETE FROM notifications WHERE user_id = 'dev-user-001';
+      DELETE FROM user_preferences WHERE user_id = 'dev-user-001';
+      PRAGMA foreign_keys = ON;
+    `);
+
     const row = await db.getFirstAsync<{ id: string }>(
       'SELECT id FROM users LIMIT 1'
     );
-    return row?.id || DEV_USER_ID;
+
+    if (row?.id) return row.id;
+
+    // Fresh install — create a local offline user
+    const localId = generateLocalUserId();
+    try {
+      await db.runAsync(
+        'INSERT INTO users (id, username, name, email) VALUES (?, ?, ?, ?)',
+        localId,
+        '@user',
+        'FitStat User',
+        null
+      );
+
+      // Seed default preferences for this new user
+      const defaultPrefs = [
+        ['workout_unit', 'metric'],
+        ['weight_target', '75.0'],
+        ['weight_unit', 'kg'],
+        ['calorie_goal', '2000'],
+        ['pref_notification_streak', '1'],
+        ['pref_notification_sync', '1'],
+        ['pref_notification_workout', '1'],
+        ['pref_notification_meal', '1'],
+      ];
+      for (const [key, value] of defaultPrefs) {
+        await db.runAsync(
+          'INSERT OR IGNORE INTO user_preferences (user_id, key, value) VALUES (?, ?, ?)',
+          localId,
+          key,
+          value
+        );
+      }
+
+      return localId;
+    } catch (insertError: any) {
+      // If insertion fails due to UNIQUE constraint, query and return the existing user ID
+      const existingRow = await db.getFirstAsync<{ id: string }>(
+        'SELECT id FROM users LIMIT 1'
+      );
+      if (existingRow?.id) {
+        return existingRow.id;
+      }
+      throw insertError;
+    }
   } catch (e) {
-    console.error('Failed to retrieve local user ID:', e);
-    return DEV_USER_ID;
+    console.error('Failed to get/create local user ID:', e);
+    return generateLocalUserId();
   }
 }
 
 /**
- * Migrates a local offline user ID (such as DEV_USER_ID) to a newly authenticated real user UUID.
+ * Migrates a local offline user ID to a newly authenticated real user UUID.
  * Disables foreign keys, performs atomic updates on users and child tables, then re-enables foreign keys.
  */
 export async function migrateLocalUserId(
@@ -611,50 +406,26 @@ export async function migrateLocalUserId(
   if (!oldId || !newId || oldId === newId) return;
 
   await db.withTransactionAsync(async () => {
-    // 1. Temporarily turn off foreign key validation for this transaction
     await db.execAsync('PRAGMA foreign_keys = OFF;');
 
     try {
-      // 2. Check if the old user exists in users table
       const userExists = await db.getFirstAsync<{ id: string }>(
         'SELECT id FROM users WHERE id = ?',
         oldId
       );
 
       if (userExists) {
-        // 3. Update the parent users table
-        await db.runAsync(
-          'UPDATE users SET id = ? WHERE id = ?',
-          newId,
-          oldId
-        );
-
-        // 4. Update the child tables
-        await db.runAsync(
-          'UPDATE food_items SET user_id = ? WHERE user_id = ?',
-          newId,
-          oldId
-        );
-        await db.runAsync(
-          'UPDATE meal_logs SET user_id = ? WHERE user_id = ?',
-          newId,
-          oldId
-        );
-        await db.runAsync(
-          'UPDATE exercises SET user_id = ? WHERE user_id = ?',
-          newId,
-          oldId
-        );
-        await db.runAsync(
-          'UPDATE workout_logs SET user_id = ? WHERE user_id = ?',
-          newId,
-          oldId
-        );
+        await db.runAsync('UPDATE users SET id = ? WHERE id = ?', newId, oldId);
+        await db.runAsync('UPDATE food_items SET user_id = ? WHERE user_id = ?', newId, oldId);
+        await db.runAsync('UPDATE meal_logs SET user_id = ? WHERE user_id = ?', newId, oldId);
+        await db.runAsync('UPDATE exercises SET user_id = ? WHERE user_id = ?', newId, oldId);
+        await db.runAsync('UPDATE workout_logs SET user_id = ? WHERE user_id = ?', newId, oldId);
+        await db.runAsync('UPDATE weight_logs SET user_id = ? WHERE user_id = ?', newId, oldId);
+        await db.runAsync('UPDATE notifications SET user_id = ? WHERE user_id = ?', newId, oldId);
+        await db.runAsync('UPDATE user_preferences SET user_id = ? WHERE user_id = ?', newId, oldId);
       }
     } finally {
-      // 5. Re-enable foreign key constraints
       await db.execAsync('PRAGMA foreign_keys = ON;');
     }
   });
 }
-

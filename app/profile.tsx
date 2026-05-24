@@ -19,7 +19,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useSQLiteContext } from 'expo-sqlite';
 import { useAuth } from '@/src/context/AuthContext';
 import { getUserProfile, updateUserProfile, UserProfile, getNotificationPreferences, saveNotificationPreference } from '@/src/db/queries';
-import { colors, radius, spacing, typography, globalStyles } from '@/src/styles/globals';
+import { colors, radius, spacing, typography } from '@/src/styles/globals';
 import { supabase } from '@/src/lib/supabase';
 
 export default function ProfileScreen() {
@@ -83,6 +83,7 @@ export default function ProfileScreen() {
   // Load user profile & preferences
   useEffect(() => {
     async function loadData() {
+      if (!userId) return;
       setIsLoadingProfile(true);
       try {
         const data = await getUserProfile(db, userId);
@@ -92,7 +93,7 @@ export default function ProfileScreen() {
           setUsername(data.username);
         }
 
-        const prefs = await getNotificationPreferences(db);
+        const prefs = await getNotificationPreferences(db, userId);
         setPrefStreak(prefs['pref_notification_streak'] !== '0');
         setPrefSync(prefs['pref_notification_sync'] !== '0');
         setPrefWorkout(prefs['pref_notification_workout'] !== '0');
@@ -110,7 +111,7 @@ export default function ProfileScreen() {
     const newValue = !currentValue;
     setter(newValue);
     try {
-      await saveNotificationPreference(db, key, newValue ? '1' : '0');
+      await saveNotificationPreference(db, userId, key, newValue ? '1' : '0');
     } catch (e) {
       console.error(`Failed to save preference ${key}:`, e);
     }
@@ -246,8 +247,8 @@ export default function ProfileScreen() {
                 <Ionicons name="person" size={36} color={colors.background} />
               </View>
               <View style={styles.userInfoText}>
-                <Text style={styles.profileName}>{profile?.name || 'Dev Tester'}</Text>
-                <Text style={styles.profileUsername}>{profile?.username || '@dev_tester'}</Text>
+                <Text style={styles.profileName}>{profile?.name || 'FitStat User'}</Text>
+                <Text style={styles.profileUsername}>{profile?.username || '@user'}</Text>
               </View>
             </View>
 

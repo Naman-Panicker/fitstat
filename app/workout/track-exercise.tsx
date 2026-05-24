@@ -8,10 +8,8 @@ import {
   Alert,
   ScrollView,
   TextInput,
-  Dimensions,
   ActivityIndicator,
-  KeyboardAvoidingView,
-  Platform,
+
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
@@ -102,7 +100,7 @@ function TrackTab({ exerciseId, exerciseName, initialEditSetId, dateStr }: Track
   // Fetch unit preferences
   const fetchPreferences = useCallback(async () => {
     try {
-      const activeUnit = await getUserPreference(db, 'workout_unit');
+      const activeUnit = await getUserPreference(db, userId, 'workout_unit');
       if (activeUnit === 'metric' || activeUnit === 'imperial') {
         setUnit(activeUnit);
         return activeUnit;
@@ -154,6 +152,7 @@ function TrackTab({ exerciseId, exerciseName, initialEditSetId, dateStr }: Track
         startEditing(match);
       }
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialEditSetId, loggedSets]);
 
   // Switch inputs to edit mode
@@ -493,7 +492,7 @@ function HistoryTab({ exerciseId }: HistoryTabProps) {
   const fetchHistory = useCallback(async () => {
     setIsLoading(true);
     try {
-      const activeUnit = await getUserPreference(db, 'workout_unit');
+      const activeUnit = await getUserPreference(db, userId, 'workout_unit');
       if (activeUnit === 'metric' || activeUnit === 'imperial') {
         setUnit(activeUnit);
       }

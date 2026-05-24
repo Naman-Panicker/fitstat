@@ -37,7 +37,7 @@ export default function WorkoutGraphTab({ exerciseId }: WorkoutGraphTabProps) {
     let isMounted = true;
     async function loadData() {
       try {
-        const userUnit = await getUserPreference(db, 'workout_unit');
+        const userUnit = await getUserPreference(db, userId, 'workout_unit');
         if (isMounted && (userUnit === 'metric' || userUnit === 'imperial')) {
           setUnit(userUnit);
         }

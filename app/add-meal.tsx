@@ -87,7 +87,7 @@ export default function AddMealScreen() {
     fat !== '' &&
     fiber !== '';
 
-  const handleLog = () => {
+  const handleLog = async () => {
     if (!canSubmit) return;
 
     const food: FoodItem = selectedFood ?? {
@@ -102,10 +102,10 @@ export default function AddMealScreen() {
 
     // Save to library if it's a new food
     if (!selectedFood) {
-      addFoodToLibrary(food);
+      await addFoodToLibrary(food);
     }
 
-    logMeal({
+    await logMeal({
       id: uid(),
       food,
       mealType: selectedMealType,

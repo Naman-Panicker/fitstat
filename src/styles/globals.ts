@@ -15,8 +15,8 @@ export const colors = {
 
   // Text
   text: '#f0f0ff',
-  textSecondary: '#8888a8',
-  textMuted: '#55556a',
+  textSecondary: '#c5c5db',
+  textMuted: '#9595b5',
 
   // Macros
   calorieColor: '#ffffff',   // white

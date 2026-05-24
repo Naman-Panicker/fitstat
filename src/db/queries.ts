@@ -1,5 +1,5 @@
 import { type SQLiteDatabase } from 'expo-sqlite';
-import { FoodItem, MealLog, MealType } from '../types';
+import { FoodItem, MealLog, MuscleGroup, Exercise, WorkoutLog, ExerciseSet } from '../types';
 
 // ─── Public types ────────────────────────────────────────────────────────────
 
@@ -307,7 +307,6 @@ export function groupLogsByDay(logs: MealLog[]): DaySummary[] {
 
 // ─── Workout queries ─────────────────────────────────────────────────────────
 
-import { MuscleGroup, Exercise, WorkoutLog, ExerciseSet } from '../types';
 
 export type LoggedSetDetail = {
   id: string;
@@ -561,10 +560,12 @@ export async function getTodayLoggedSetsForExercise(
  */
 export async function getUserPreference(
   db: SQLiteDatabase,
+  userId: string,
   key: string
 ): Promise<string | null> {
   const row = await db.getFirstAsync<{ value: string }>(
-    `SELECT value FROM user_preferences WHERE key = ?`,
+    `SELECT value FROM user_preferences WHERE user_id = ? AND key = ?`,
+    userId,
     key
   );
   return row?.value ?? null;
@@ -575,11 +576,13 @@ export async function getUserPreference(
  */
 export async function setUserPreference(
   db: SQLiteDatabase,
+  userId: string,
   key: string,
   value: string
 ): Promise<void> {
   await db.runAsync(
-    `INSERT OR REPLACE INTO user_preferences (key, value) VALUES (?, ?)`,
+    `INSERT OR REPLACE INTO user_preferences (user_id, key, value) VALUES (?, ?, ?)`,
+    userId,
     key,
     value
   );
@@ -977,12 +980,14 @@ export async function clearAllNotifications(
  */
 export async function saveNotificationPreference(
   db: SQLiteDatabase,
+  userId: string,
   key: string,
   value: string
 ): Promise<void> {
   try {
     await db.runAsync(
-      'INSERT OR REPLACE INTO user_preferences (key, value) VALUES (?, ?)',
+      'INSERT OR REPLACE INTO user_preferences (user_id, key, value) VALUES (?, ?, ?)',
+      userId,
       key,
       value
     );
@@ -995,11 +1000,13 @@ export async function saveNotificationPreference(
  * Fetches all active notification preference toggles from user_preferences.
  */
 export async function getNotificationPreferences(
-  db: SQLiteDatabase
+  db: SQLiteDatabase,
+  userId: string
 ): Promise<Record<string, string>> {
   try {
     const rows = await db.getAllAsync<{ key: string; value: string }>(
-      "SELECT key, value FROM user_preferences WHERE key LIKE 'pref_notification_%'"
+      "SELECT key, value FROM user_preferences WHERE user_id = ? AND key LIKE 'pref_notification_%'",
+      userId
     );
     const prefs: Record<string, string> = {};
     rows.forEach((r) => {
@@ -1021,8 +1028,9 @@ export async function syncSystemNotifications(
   userId: string,
   isSynced: boolean
 ): Promise<void> {
+  if (!userId) return;
   try {
-    const prefs = await getNotificationPreferences(db);
+    const prefs = await getNotificationPreferences(db, userId);
     const showStreak = prefs['pref_notification_streak'] !== '0';
     const showSync = prefs['pref_notification_sync'] !== '0';
     const showWorkout = prefs['pref_notification_workout'] !== '0';
@@ -1130,5 +1138,83 @@ export async function syncSystemNotifications(
     }
   } catch (e) {
     console.error('Failed to sync system notifications:', e);
+  }
+}
+
+export interface WeightLog {
+  id: string;
+  userId: string;
+  weight: number;
+  loggedAt: string; // YYYY-MM-DD
+  syncedAt?: string;
+}
+
+/**
+ * Fetches all weight logs for a user ordered by date descending.
+ */
+export async function fetchWeightLogs(
+  db: SQLiteDatabase,
+  userId: string
+): Promise<WeightLog[]> {
+  try {
+    const rows = await db.getAllAsync<{
+      id: string;
+      user_id: string;
+      weight: number;
+      logged_at: string;
+      synced_at: string;
+    }>(
+      'SELECT id, user_id, weight, logged_at, synced_at FROM weight_logs WHERE user_id = ? ORDER BY logged_at DESC',
+      userId
+    );
+    return rows.map((r) => ({
+      id: r.id,
+      userId: r.user_id,
+      weight: r.weight,
+      loggedAt: r.logged_at,
+      syncedAt: r.synced_at,
+    }));
+  } catch (e) {
+    console.error('Failed to fetch weight logs:', e);
+    return [];
+  }
+}
+
+/**
+ * Inserts or updates a body weight log for a calendar date.
+ */
+export async function logWeightForDate(
+  db: SQLiteDatabase,
+  userId: string,
+  weight: number,
+  dateStr: string
+): Promise<void> {
+  try {
+    const id = `weight-${userId}-${dateStr}`;
+    await db.runAsync(
+      'INSERT OR REPLACE INTO weight_logs (id, user_id, weight, logged_at) VALUES (?, ?, ?, ?)',
+      id,
+      userId,
+      weight,
+      dateStr
+    );
+  } catch (e) {
+    console.error('Failed to log weight:', e);
+    throw e;
+  }
+}
+
+/**
+ * Deletes a weight log by ID.
+ */
+export async function deleteWeightLog(
+  db: SQLiteDatabase,
+  logId: string
+): Promise<void> {
+  try {
+    await db.runAsync('DELETE FROM weight_logs WHERE id = ?', logId);
+  } catch (e) {
+    console.error('Failed to delete weight log:', e);
+    throw e;
   }
 }

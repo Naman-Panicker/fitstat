@@ -1,14 +1,14 @@
 import React, { useState, useCallback, useMemo } from 'react';
 import { View, Text, StyleSheet, Pressable, ScrollView, ActivityIndicator, Modal, Animated, Dimensions } from 'react-native';
-
-const screenWidth = Dimensions.get('window').width;
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 import { colors, radius, spacing, typography } from '@/src/styles/globals';
-import { getLoggedSetsForDate, LoggedSetDetail, getUserPreference, setUserPreference, getOrCreateWorkoutLogForDate } from '@/src/db/queries';
+import { getLoggedSetsForDate, LoggedSetDetail, getUserPreference, setUserPreference } from '@/src/db/queries';
 import { useAuth } from '@/src/context/AuthContext';
+
+const screenWidth = Dimensions.get('window').width;
 
 // Grouping structure for displaying today's logged sets
 interface GroupedSets {
@@ -125,14 +125,14 @@ export default function WorkoutsScreen() {
   // Fetch unit preferences
   const fetchPreferences = useCallback(async () => {
     try {
-      const activeUnit = await getUserPreference(db, 'workout_unit');
+      const activeUnit = await getUserPreference(db, userId, 'workout_unit');
       if (activeUnit === 'metric' || activeUnit === 'imperial') {
         setUnit(activeUnit);
       }
     } catch (e) {
       console.error("Failed to load user preferences:", e);
     }
-  }, [db]);
+  }, [db, userId]);
 
   // Fetch sets for selected date
   const fetchSets = useCallback(async () => {
@@ -154,6 +154,7 @@ export default function WorkoutsScreen() {
     useCallback(() => {
       let isMounted = true;
       async function loadData() {
+        if (!userId) return;
         try {
           await fetchPreferences();
           if (isMounted) {
@@ -173,7 +174,7 @@ export default function WorkoutsScreen() {
   // Unit settings toggling handler
   const handleToggleUnit = async (newUnit: 'metric' | 'imperial') => {
     try {
-      await setUserPreference(db, 'workout_unit', newUnit);
+      await setUserPreference(db, userId, 'workout_unit', newUnit);
       setUnit(newUnit);
     } catch (e) {
       console.error("Failed to save unit setting:", e);

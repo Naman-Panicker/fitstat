@@ -38,8 +38,7 @@ export type User = {
   syncedAt?: string | null;
 };
 
-/** Hard-coded user for the development phase. */
-export const DEV_USER_ID = 'dev-user-001';
+
 
 // ─── Workout types ───────────────────────────────────────────────────────────
 
