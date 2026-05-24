@@ -4,7 +4,8 @@ import { useSQLiteContext } from 'expo-sqlite';
 import { Ionicons } from '@expo/vector-icons';
 import { colors, spacing, typography, radius } from '@/src/styles/globals';
 import { getMealLogsByDateRange } from '@/src/db/queries';
-import { DEV_USER_ID, MealLog } from '@/src/types';
+import { useAuth } from '@/src/context/AuthContext';
+import { MealLog } from '@/src/types';
 import { LineChart } from 'react-native-gifted-charts';
 import { PolarChart, Pie } from 'victory-native';
 
@@ -14,6 +15,7 @@ type TimeRange = '7D' | '30D' | '3M' | 'ALL';
 
 export default function MealsGraphPage() {
   const db = useSQLiteContext();
+  const { userId } = useAuth();
   const [range, setRange] = useState<TimeRange>('7D');
   const [loading, setLoading] = useState(true);
   const [mealLogs, setMealLogs] = useState<MealLog[]>([]);
@@ -44,14 +46,14 @@ export default function MealsGraphPage() {
     try {
       const end = todayStr();
       // Always fetch complete history since 2020 so we can determine the absolute first record date
-      const data = await getMealLogsByDateRange(db, DEV_USER_ID, '2020-01-01', end);
+      const data = await getMealLogsByDateRange(db, userId, '2020-01-01', end);
       setMealLogs(data);
     } catch (e) {
       console.error('Failed to fetch meal logs for graphing:', e);
     } finally {
       setLoading(false);
     }
-  }, [db, todayStr]);
+  }, [db, userId, todayStr]);
 
   useEffect(() => {
     fetchGraphData();

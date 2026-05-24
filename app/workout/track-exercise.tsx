@@ -26,7 +26,8 @@ import {
   getOrCreateWorkoutLogForDate,
   getExerciseHistory,
 } from '@/src/db/queries';
-import { DEV_USER_ID, ExerciseSet } from '@/src/types';
+import { ExerciseSet } from '@/src/types';
+import { useAuth } from '@/src/context/AuthContext';
 import WorkoutGraphTab from '@/components/workout/WorkoutGraphTab';
 
 // ─── Sub-Tab Custom Tab Bar ──────────────────────────────────────────────────
@@ -78,6 +79,7 @@ type TrackTabProps = {
 
 function TrackTab({ exerciseId, exerciseName, initialEditSetId, dateStr }: TrackTabProps) {
   const db = useSQLiteContext();
+  const { userId } = useAuth();
 
   // Unit preferences state
   const [unit, setUnit] = useState<'metric' | 'imperial'>('metric');
@@ -112,12 +114,12 @@ function TrackTab({ exerciseId, exerciseName, initialEditSetId, dateStr }: Track
   // Fetch logged sets for target date
   const fetchLoggedSets = useCallback(async () => {
     try {
-      const data = await getLoggedSetsForExerciseOnDate(db, DEV_USER_ID, exerciseId, dateStr);
+      const data = await getLoggedSetsForExerciseOnDate(db, userId, exerciseId, dateStr);
       setLoggedSets(data);
     } catch (e) {
       console.error('Failed to fetch logged sets:', e);
     }
-  }, [db, exerciseId, dateStr]);
+  }, [db, userId, exerciseId, dateStr]);
 
   // Load preferences sequentially and set default initial weight based on active unit, then fetch logged sets
   useEffect(() => {
@@ -225,7 +227,7 @@ function TrackTab({ exerciseId, exerciseName, initialEditSetId, dateStr }: Track
   const handleSave = async () => {
     setIsSaving(true);
     try {
-      const workoutLog = await getOrCreateWorkoutLogForDate(db, DEV_USER_ID, dateStr);
+      const workoutLog = await getOrCreateWorkoutLogForDate(db, userId, dateStr);
       // Convert weight back to kg if Imperial
       const weightInKg = unit === 'imperial' ? parseFloat((weight / 2.20462).toFixed(2)) : weight;
       await logExerciseSet(db, workoutLog.id, exerciseId, weightInKg, reps);
@@ -475,6 +477,7 @@ interface HistoricalDay {
 
 function HistoryTab({ exerciseId }: HistoryTabProps) {
   const db = useSQLiteContext();
+  const { userId } = useAuth();
   const [history, setHistory] = useState<HistoricalDay[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [unit, setUnit] = useState<'metric' | 'imperial'>('metric');
@@ -492,14 +495,14 @@ function HistoryTab({ exerciseId }: HistoryTabProps) {
       if (activeUnit === 'metric' || activeUnit === 'imperial') {
         setUnit(activeUnit);
       }
-      const data = await getExerciseHistory(db, DEV_USER_ID, exerciseId);
+      const data = await getExerciseHistory(db, userId, exerciseId);
       setHistory(data);
     } catch (e) {
       console.error('Failed to fetch exercise history:', e);
     } finally {
       setIsLoading(false);
     }
-  }, [db, exerciseId]);
+  }, [db, userId, exerciseId]);
 
   useEffect(() => {
     fetchHistory();

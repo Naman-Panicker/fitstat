@@ -7,7 +7,7 @@ import {
   StyleSheet,
 } from 'react-native';
 import { useSQLiteContext } from 'expo-sqlite';
-import { DEV_USER_ID } from '@/src/types';
+import { useAuth } from '@/src/context/AuthContext';
 import { colors, spacing, typography } from '@/src/styles/globals';
 import {
   DaySummary,
@@ -31,7 +31,8 @@ type State = {
 type Action =
   | { type: 'FETCH_START' }
   | { type: 'FETCH_SUCCESS'; payload: { newDays: DaySummary[]; oldestDate: string | null; hasMore: boolean } }
-  | { type: 'FETCH_ERROR' };
+  | { type: 'FETCH_ERROR' }
+  | { type: 'RESET' };
 
 function reducer(state: State, action: Action): State {
   switch (action.type) {
@@ -49,6 +50,13 @@ function reducer(state: State, action: Action): State {
     }
     case 'FETCH_ERROR':
       return { ...state, isLoading: false };
+    case 'RESET':
+      return {
+        days: [],
+        cursor: null,
+        hasMore: true,
+        isLoading: false,
+      };
     default:
       return state;
   }
@@ -67,6 +75,7 @@ function tomorrowStr(): string {
 
 export default function MealsHistoryPage() {
   const db = useSQLiteContext();
+  const { userId } = useAuth();
   const isFetchingRef = useRef(false);
   const lastFetchedCursorRef = useRef<string | null>(null);
 
@@ -89,7 +98,7 @@ export default function MealsHistoryPage() {
     dispatch({ type: 'FETCH_START' });
 
     try {
-      const dates = await getLoggedDates(db, DEV_USER_ID, beforeDate, PAGE_SIZE);
+      const dates = await getLoggedDates(db, userId, beforeDate, PAGE_SIZE);
 
       if (dates.length === 0) {
         dispatch({
@@ -102,7 +111,7 @@ export default function MealsHistoryPage() {
       const oldestDate = dates[dates.length - 1];
       const newestDate = dates[0];
 
-      const logs = await getMealLogsByDateRange(db, DEV_USER_ID, oldestDate, newestDate);
+      const logs = await getMealLogsByDateRange(db, userId, oldestDate, newestDate);
       const newDays = groupLogsByDay(logs);
 
       // Filter out any potential duplicate dates that might somehow already exist
@@ -125,12 +134,22 @@ export default function MealsHistoryPage() {
     } finally {
       isFetchingRef.current = false;
     }
-  }, [db, state.cursor, state.hasMore, state.days]);
+  }, [db, userId, state.cursor, state.hasMore, state.days]);
 
-  // Initial load
+  // Handle reset on userId change
   useEffect(() => {
-    loadMore();
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+    dispatch({ type: 'RESET' });
+    lastFetchedCursorRef.current = null;
+    isFetchingRef.current = false;
+  }, [userId]);
+
+  // Trigger load when state is empty and more data is expected
+  useEffect(() => {
+    if (state.days.length === 0 && state.hasMore && !state.isLoading) {
+      loadMore();
+    }
+  }, [userId, state.days.length, state.hasMore, state.isLoading, loadMore]);
+
 
   const renderItem = useCallback(
     ({ item }: { item: DaySummary }) => <HistoryDayCard day={item} />,

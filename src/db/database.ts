@@ -23,8 +23,10 @@ export async function migrateDbIfNeeded(db: SQLiteDatabase) {
     await db.execAsync(`
       CREATE TABLE IF NOT EXISTS users (
         id         TEXT PRIMARY KEY NOT NULL,
+        username   TEXT UNIQUE NOT NULL,
         name       TEXT NOT NULL,
         email      TEXT,
+        number     TEXT,
         avatar_url TEXT,
         created_at TEXT NOT NULL DEFAULT (datetime('now')),
         synced_at  TEXT
@@ -531,3 +533,79 @@ export async function migrateDbIfNeeded(db: SQLiteDatabase) {
 
   await db.execAsync(`PRAGMA user_version = ${DATABASE_VERSION}`);
 }
+
+/**
+ * Retrieves the currently stored user ID in the local SQLite database.
+ * Falls back to DEV_USER_ID if the users table is somehow empty.
+ */
+export async function getLocalUserId(db: SQLiteDatabase): Promise<string> {
+  try {
+    const row = await db.getFirstAsync<{ id: string }>(
+      'SELECT id FROM users LIMIT 1'
+    );
+    return row?.id || DEV_USER_ID;
+  } catch (e) {
+    console.error('Failed to retrieve local user ID:', e);
+    return DEV_USER_ID;
+  }
+}
+
+/**
+ * Migrates a local offline user ID (such as DEV_USER_ID) to a newly authenticated real user UUID.
+ * Disables foreign keys, performs atomic updates on users and child tables, then re-enables foreign keys.
+ */
+export async function migrateLocalUserId(
+  db: SQLiteDatabase,
+  oldId: string,
+  newId: string
+): Promise<void> {
+  if (!oldId || !newId || oldId === newId) return;
+
+  await db.withTransactionAsync(async () => {
+    // 1. Temporarily turn off foreign key validation for this transaction
+    await db.execAsync('PRAGMA foreign_keys = OFF;');
+
+    try {
+      // 2. Check if the old user exists in users table
+      const userExists = await db.getFirstAsync<{ id: string }>(
+        'SELECT id FROM users WHERE id = ?',
+        oldId
+      );
+
+      if (userExists) {
+        // 3. Update the parent users table
+        await db.runAsync(
+          'UPDATE users SET id = ? WHERE id = ?',
+          newId,
+          oldId
+        );
+
+        // 4. Update the child tables
+        await db.runAsync(
+          'UPDATE food_items SET user_id = ? WHERE user_id = ?',
+          newId,
+          oldId
+        );
+        await db.runAsync(
+          'UPDATE meal_logs SET user_id = ? WHERE user_id = ?',
+          newId,
+          oldId
+        );
+        await db.runAsync(
+          'UPDATE exercises SET user_id = ? WHERE user_id = ?',
+          newId,
+          oldId
+        );
+        await db.runAsync(
+          'UPDATE workout_logs SET user_id = ? WHERE user_id = ?',
+          newId,
+          oldId
+        );
+      }
+    } finally {
+      // 5. Re-enable foreign key constraints
+      await db.execAsync('PRAGMA foreign_keys = ON;');
+    }
+  });
+}
+

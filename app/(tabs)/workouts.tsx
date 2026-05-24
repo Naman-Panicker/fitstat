@@ -6,7 +6,7 @@ import { useRouter, useFocusEffect } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 import { colors, radius, spacing, typography } from '@/src/styles/globals';
 import { getLoggedSetsForDate, LoggedSetDetail, getUserPreference, setUserPreference, getOrCreateWorkoutLogForDate } from '@/src/db/queries';
-import { DEV_USER_ID } from '@/src/types';
+import { useAuth } from '@/src/context/AuthContext';
 
 // Grouping structure for displaying today's logged sets
 interface GroupedSets {
@@ -19,6 +19,7 @@ interface GroupedSets {
 export default function WorkoutsScreen() {
   const router = useRouter();
   const db = useSQLiteContext();
+  const { userId } = useAuth();
 
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
   const [todaySets, setTodaySets] = useState<LoggedSetDetail[]>([]);
@@ -77,14 +78,15 @@ export default function WorkoutsScreen() {
     setIsLoading(true);
     try {
       const dateStr = dateToSqlStr(selectedDate);
-      const sets = await getLoggedSetsForDate(db, DEV_USER_ID, dateStr);
+      const sets = await getLoggedSetsForDate(db, userId, dateStr);
       setTodaySets(sets);
     } catch (e) {
       console.error("Failed to load sets for date:", e);
     } finally {
       setIsLoading(false);
     }
-  }, [db, selectedDate]);
+  }, [db, selectedDate, userId]);
+
 
   // Re-fetch whenever screen active or date changes
   useFocusEffect(

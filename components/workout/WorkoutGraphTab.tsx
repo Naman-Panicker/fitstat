@@ -13,7 +13,7 @@ import { useSQLiteContext } from 'expo-sqlite';
 import { LineChart } from 'react-native-gifted-charts';
 import { colors, radius, spacing, typography } from '@/src/styles/globals';
 import { getUserPreference, getExerciseHistory } from '@/src/db/queries';
-import { DEV_USER_ID } from '@/src/types';
+import { useAuth } from '@/src/context/AuthContext';
 
 const screenWidth = Dimensions.get('window').width;
 
@@ -26,6 +26,7 @@ interface WorkoutGraphTabProps {
 
 export default function WorkoutGraphTab({ exerciseId }: WorkoutGraphTabProps) {
   const db = useSQLiteContext();
+  const { userId } = useAuth();
   const [range, setRange] = useState<TimeRange>('30D');
   const [metric, setMetric] = useState<MetricType>('max_weight');
   const [unit, setUnit] = useState<'metric' | 'imperial'>('metric');
@@ -41,7 +42,7 @@ export default function WorkoutGraphTab({ exerciseId }: WorkoutGraphTabProps) {
           setUnit(userUnit);
         }
         
-        const rawHistory = await getExerciseHistory(db, DEV_USER_ID, exerciseId);
+        const rawHistory = await getExerciseHistory(db, userId, exerciseId);
         if (isMounted) {
           setHistory(rawHistory);
         }
@@ -57,7 +58,7 @@ export default function WorkoutGraphTab({ exerciseId }: WorkoutGraphTabProps) {
     return () => {
       isMounted = false;
     };
-  }, [db, exerciseId]);
+  }, [db, exerciseId, userId]);
 
   const filteredHistory = useMemo(() => {
     if (history.length === 0) return [];

@@ -6,7 +6,8 @@ import React, {
   ReactNode,
 } from 'react';
 import { useSQLiteContext } from 'expo-sqlite';
-import { FoodItem, MealLog, MealType, DEV_USER_ID } from '../types';
+import { FoodItem, MealLog, MealType } from '../types';
+import { useAuth } from './AuthContext';
 import {
   getAllFoodItems,
   getMealLogsByDate,
@@ -90,18 +91,19 @@ const MealsContext = createContext<ContextValue | undefined>(undefined);
 
 export function MealsProvider({ children }: { children: ReactNode }) {
   const db = useSQLiteContext();
+  const { userId } = useAuth();
   const [state, dispatch] = useReducer(reducer, initialState);
 
-  // Hydrate from SQLite on mount
+  // Hydrate from SQLite on mount or when userId changes
   useEffect(() => {
     let isMounted = true;
     async function hydrate() {
       try {
         const date = todayDateString();
         // Fetch sequentially to prevent concurrent sqlite connection clashes
-        const foodLibrary = await getAllFoodItems(db, DEV_USER_ID);
+        const foodLibrary = await getAllFoodItems(db, userId);
         if (!isMounted) return;
-        const dayLog = await getMealLogsByDate(db, DEV_USER_ID, date);
+        const dayLog = await getMealLogsByDate(db, userId, date);
         if (!isMounted) return;
 
         dispatch({ type: 'HYDRATE', payload: { foodLibrary, dayLog } });
@@ -116,7 +118,7 @@ export function MealsProvider({ children }: { children: ReactNode }) {
     return () => {
       isMounted = false;
     };
-  }, [db]);
+  }, [db, userId]);
 
   const addFoodToLibrary = (food: FoodItem) => {
     const exists = state.foodLibrary.some(
@@ -125,18 +127,19 @@ export function MealsProvider({ children }: { children: ReactNode }) {
     if (exists) return;
 
     // Write to SQLite, then update in-memory state
-    insertFoodItem(db, food, DEV_USER_ID).catch((e) =>
+    insertFoodItem(db, food, userId).catch((e) =>
       console.error('Failed to insert food item:', e)
     );
     dispatch({ type: 'ADD_FOOD_TO_LIBRARY', payload: food });
   };
 
   const logMeal = (log: MealLog) => {
-    insertMealLog(db, log, DEV_USER_ID, state.selectedDate).catch((e) =>
+    insertMealLog(db, log, userId, state.selectedDate).catch((e) =>
       console.error('Failed to insert meal log:', e)
     );
     dispatch({ type: 'LOG_MEAL', payload: log });
   };
+
 
   const deleteLogEntry = (id: string) => {
     deleteMealLog(db, id).catch((e) =>

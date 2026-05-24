@@ -16,13 +16,15 @@ import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useSQLiteContext } from 'expo-sqlite';
 import { colors, radius, spacing, typography } from '@/src/styles/globals';
-import { MuscleGroup, Exercise, DEV_USER_ID } from '@/src/types';
+import { MuscleGroup, Exercise } from '@/src/types';
+import { useAuth } from '@/src/context/AuthContext';
 import { getExercisesByMuscleGroup, addCustomExercise } from '@/src/db/queries';
 
 export default function SelectExerciseScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ muscle: MuscleGroup; label: string; date?: string }>();
   const db = useSQLiteContext();
+  const { userId } = useAuth();
 
   const muscleGroup = params.muscle ?? 'chest';
   const muscleLabel = params.label ?? 'Chest';
@@ -67,7 +69,7 @@ export default function SelectExerciseScreen() {
     try {
       const newEx = await addCustomExercise(
         db,
-        DEV_USER_ID,
+        userId,
         newExerciseName.trim(),
         muscleGroup
       );
